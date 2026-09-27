@@ -15,12 +15,19 @@
 }
 .chat-shell > .topbar {
   flex: none;
-  padding: 12px 24px;
-  margin: 0;
+  margin-inline: 25px;
   position: relative;
   top: auto;
-  background: var(--paper);
-  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 600px) {
+  .chat-shell > .topbar {
+    margin-inline: 40px;
+  }
+}
+@media (max-width: 360px) {
+  .chat-shell > .topbar {
+    margin-inline: 16px;
+  }
 }
 .chat-shell > .notice,
 .chat-shell > .error {
@@ -679,16 +686,6 @@
   top: 12px;
 }
 @media (max-width: 599px) {
-  .chat-shell > .topbar {
-    padding: 8px 12px;
-  }
-  .chat-shell > .topbar .brand-symbol {
-    width: 32px;
-    height: 32px;
-  }
-  .chat-shell > .topbar .brand small {
-    display: none;
-  }
   .chat-toolbar {
     padding: 2px 8px;
     min-height: 42px;
