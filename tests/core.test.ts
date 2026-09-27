@@ -236,6 +236,8 @@ describe('local data and backups', () => {
     ]);
     expect(result.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(await (await database).count('jobs')).toBe(1);
+    const [stored] = await (await database).getAll('jobs');
+    await (await database).put('jobs', { ...stored, status: 'failed' });
   });
   it('roundtrips image bytes without credentials and adds copies without overwriting existing work', async () => {
     const { work, job, mediaId } = fixture();

@@ -1,10 +1,12 @@
 import { openDB, type DBSchema } from 'idb';
 import type { Job, Media, Work } from './types';
+import { isChatSessionActive, type ChatSession } from './chat-types';
 
 interface StudioDB extends DBSchema {
   works: { key: string; value: Work };
   jobs: { key: string; value: Job; indexes: { workId: string } };
   media: { key: string; value: StoredMedia };
+  chats: { key: string; value: ChatSession };
 }
 export interface StoredMedia {
   id: string;
@@ -27,13 +29,24 @@ export function asMedia(record: StoredMedia): Media {
     name: record.name,
   };
 }
-export const database = openDB<StudioDB>('img-generator', 1, {
-  upgrade(db) {
-    db.createObjectStore('works', { keyPath: 'id' });
-    db.createObjectStore('jobs', { keyPath: 'id' }).createIndex('workId', 'workId');
-    db.createObjectStore('media', { keyPath: 'id' });
+export const database = openDB<StudioDB>('img-generator', 2, {
+  upgrade(db, oldVersion) {
+    if (oldVersion < 1) {
+      db.createObjectStore('works', { keyPath: 'id' });
+      db.createObjectStore('jobs', { keyPath: 'id' }).createIndex('workId', 'workId');
+      db.createObjectStore('media', { keyPath: 'id' });
+    }
+    if (oldVersion < 2) db.createObjectStore('chats', { keyPath: 'id' });
   },
 });
+export function chatMediaIds(session: ChatSession): string[] {
+  const attachments = [
+    ...session.seed.flatMap((message) => message.attachments ?? []),
+    ...session.turns.flatMap((turn) => turn.attachments),
+    ...session.draftAttachments,
+  ];
+  return attachments.flatMap((attachment) => [attachment.id, ...attachment.imageIds]);
+}
 const channel =
   typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('img-generator.updates') : null;
 export function changed() {
@@ -91,15 +104,17 @@ export async function addJobs(jobs: Job[]) {
   changed();
 }
 export async function removeWork(id: string) {
-  const tx = (await database).transaction(['works', 'jobs', 'media'], 'readwrite');
+  const tx = (await database).transaction(['works', 'jobs', 'media', 'chats'], 'readwrite');
   await tx.objectStore('works').delete(id);
   const jobs = await tx.objectStore('jobs').index('workId').getAll(id);
   for (const job of jobs) await tx.objectStore('jobs').delete(job.id);
   const remainingWorks = await tx.objectStore('works').getAll();
   const remainingJobs = await tx.objectStore('jobs').getAll();
+  const chats = await tx.objectStore('chats').getAll();
   const used = new Set([
     ...remainingWorks.flatMap((w) => w.draft.refs),
     ...remainingJobs.flatMap((j) => [...j.draft.refs, j.mediaId ?? '']),
+    ...chats.flatMap(chatMediaIds),
   ]);
   for (const key of await tx.objectStore('media').getAllKeys())
     if (!used.has(key)) await tx.objectStore('media').delete(key);
@@ -107,11 +122,22 @@ export async function removeWork(id: string) {
   changed();
 }
 export async function clearWorks() {
-  const tx = (await database).transaction(['works', 'jobs', 'media'], 'readwrite');
+  const tx = (await database).transaction(['works', 'jobs', 'media', 'chats'], 'readwrite');
+  void tx.done.catch(() => {});
+  const jobs = await tx.objectStore('jobs').getAll();
+  const chats = await tx.objectStore('chats').getAll();
+  if (
+    jobs.some((job) => ['queued', 'sending', 'processing'].includes(job.status)) ||
+    chats.some(isChatSessionActive)
+  ) {
+    tx.abort();
+    throw new Error('仍有正在處理的作品或對話，請完成或停止後再清除。');
+  }
   await Promise.all([
     tx.objectStore('works').clear(),
     tx.objectStore('jobs').clear(),
     tx.objectStore('media').clear(),
+    tx.objectStore('chats').clear(),
   ]);
   await tx.done;
   changed();

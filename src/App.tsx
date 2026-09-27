@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { listChatSessions } from './chat-db';
+import { recoverChatSessions } from './chat-engine';
+import { isChatSessionActive } from './chat-types';
+const ChatWorkspace = lazy(() =>
+  import('./ChatWorkspace').then((module) => ({ default: module.ChatWorkspace })),
+);
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -89,12 +95,13 @@ function Toast({ notice }: { notice: ToastMessage }) {
     </div>
   );
 }
-type Screen = 'home' | 'work' | 'library' | 'key';
+type Screen = 'home' | 'work' | 'library' | 'key' | 'chat';
 type WorkTab = 'edit' | 'results';
 interface NavigationState {
   studio: true;
   screen: Screen;
   workId?: string;
+  sessionId?: string;
   workTab?: WorkTab;
   overlay?: 'settings' | 'viewer' | 'fullscreen' | 'key';
   jobId?: string;
@@ -1066,6 +1073,8 @@ export default function App() {
   const [works, setWorks] = useState<Work[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [workId, setWorkId] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [chatActive, setChatActive] = useState(false);
   const [settings, setSettings] = useState(false);
   const [imageJob, setImageJob] = useState<Job | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -1083,14 +1092,28 @@ export default function App() {
     'unset' | 'checking' | 'ready' | 'invalid' | 'unavailable'
   >(apiKey ? 'checking' : 'unset');
   const [storageBytes, setStorageBytes] = useState<number | null>();
-  const active = jobs.some(isActive);
+  const active = jobs.some(isActive) || chatActive;
+  useEffect(() => {
+    if (!chatActive) return;
+    // A closing tab can release its lock after the focus event in the surviving tab.
+    const timer = window.setInterval(() => {
+      void recoverChatSessions().catch(() => setStorageError(true));
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [chatActive]);
   const notify = useCallback<Notify>(
     (message) => setToast({ id: ++toastSequence.current, message }),
     [],
   );
   const enteredStudio = Boolean(apiKey || guestMode);
   useEffect(() => {
-    if (enteredStudio && screen === 'home' && !loading && !settings && !localStorage.getItem(HOME_TOUR_KEY))
+    if (
+      enteredStudio &&
+      screen === 'home' &&
+      !loading &&
+      !settings &&
+      !localStorage.getItem(HOME_TOUR_KEY)
+    )
       setShowHomeTour(true);
   }, [enteredStudio, screen, loading, settings]);
   const jobsRef = useRef(jobs);
@@ -1101,6 +1124,7 @@ export default function App() {
     // Accept history entries created before key setup became a regular screen.
     setScreen(state.overlay === 'key' ? 'key' : state.screen);
     setWorkId(state.workId ?? '');
+    setChatId(state.sessionId ?? '');
     setWorkTab(state.workTab ?? 'edit');
     setSettings(state.overlay === 'settings');
     setFullscreen(state.overlay === 'fullscreen');
@@ -1179,8 +1203,9 @@ export default function App() {
     const load = async () => {
       const ticket = ++sequence;
       try {
-        const result = await snapshot();
+        const [result, chats] = await Promise.all([snapshot(), listChatSessions()]);
         if (live && ticket === sequence) {
+          setChatActive(chats.some(isChatSessionActive));
           setWorks(result.works);
           setJobs(result.jobs);
           setStorageError(false);
@@ -1191,10 +1216,24 @@ export default function App() {
         if (live) setLoading(false);
       }
     };
-    void load();
+    void recoverChatSessions()
+      .then(load)
+      .catch(() => {
+        if (live) {
+          setStorageError(true);
+          setLoading(false);
+        }
+      });
+    const recover = () => {
+      void recoverChatSessions().catch(() => {
+        if (live) setStorageError(true);
+      });
+    };
+    window.addEventListener('focus', recover);
     window.addEventListener('studio-change', load);
     return () => {
       live = false;
+      window.removeEventListener('focus', recover);
       window.removeEventListener('studio-change', load);
     };
   }, []);
@@ -1227,6 +1266,11 @@ export default function App() {
     return () => {
       ++balanceSequence.current;
     };
+  }, [refreshBalance]);
+  useEffect(() => {
+    const refresh = () => void refreshBalance();
+    window.addEventListener('chat-finished', refresh);
+    return () => window.removeEventListener('chat-finished', refresh);
   }, [refreshBalance]);
   useEffect(() => {
     if (!settings) return;
@@ -1350,7 +1394,7 @@ export default function App() {
   };
 
   return (
-    <main className="shell">
+    <main className={`shell${screen === 'chat' && enteredStudio ? ' chat-shell' : ''}`}>
       <div className="landscape-lock" role="status">
         <Smartphone size={46} />
         <strong>請將手機轉回直向</strong>
@@ -1383,7 +1427,7 @@ export default function App() {
               onClick={() =>
                 apiKey
                   ? void refreshBalance()
-                  : navigate({ screen, workId, workTab, overlay: 'settings' })
+                  : navigate({ screen, workId, workTab, sessionId: chatId, overlay: 'settings' })
               }
               disabled={balanceLoading}
             >
@@ -1403,6 +1447,7 @@ export default function App() {
               onClick={() =>
                 navigate({
                   screen,
+                  sessionId: chatId,
                   ...(workId ? { workId, workTab } : {}),
                   overlay: 'settings',
                 })
@@ -1450,6 +1495,27 @@ export default function App() {
         </div>
       ) : (
         <>
+          {screen === 'chat' && (
+            <Suspense
+              fallback={
+                <div className="empty-state">
+                  <LoaderCircle className="spin" />
+                  正在打開對話…
+                </div>
+              }
+            >
+              <ChatWorkspace
+                apiKey={apiKey}
+                showMoney={preferences.showMoney}
+                sessionId={chatId}
+                onNavigate={(id) => navigate({ screen: 'chat', sessionId: id })}
+                onSettings={() =>
+                  navigate({ screen: 'chat', sessionId: chatId, overlay: 'settings' })
+                }
+                notify={notify}
+              />
+            </Suspense>
+          )}
           {screen === 'home' && (
             <>
               <button
@@ -1488,7 +1554,11 @@ export default function App() {
                 </div>
                 <HomeIllustration kind="video" />
               </button>
-              <button className="create-card chat-create-card" disabled>
+              <button
+                className="create-card chat-create-card"
+                disabled={storageError}
+                onClick={() => navigate({ screen: 'chat' })}
+              >
                 <div className="create-copy">
                   <h2>聊天問答</h2>
                   <p>
@@ -1496,7 +1566,9 @@ export default function App() {
                     <br />
                     一起整理想法與靈感。
                   </p>
-                  <span className="coming-soon">準備中</span>
+                  <span className="create-cta">
+                    開始聊天 <ArrowRight size={19} />
+                  </span>
                 </div>
                 <HomeIllustration kind="chat" />
               </button>
@@ -1761,7 +1833,7 @@ export default function App() {
                         ? '暫時無法讀取'
                         : formatBytes(storageBytes)}
                   </strong>
-                  <small>暫存在這個瀏覽器的參考照片、生成圖片與影片。</small>
+                  <small>暫存在這個瀏覽器的參考照片、生成圖片、影片與聊天附件。</small>
                 </section>
                 <p className="hint">可以到「我的作品」刪除不需要的作品，釋出儲存空間。</p>
                 <button
@@ -1770,7 +1842,7 @@ export default function App() {
                   onClick={async () => {
                     if (
                       !confirm(
-                        '清除這台裝置的所有作品、照片與生成紀錄？Key 與顯示偏好會保留。此操作無法復原，請先匯出備份。',
+                        '清除這台裝置的所有作品、聊天對話、附件與生成紀錄？Key 與顯示偏好會保留。此操作無法復原，請先匯出備份。',
                       )
                     )
                       return;
@@ -1784,7 +1856,7 @@ export default function App() {
                       };
                       history.replaceState(homeState, '');
                       applyNavigation(homeState);
-                      notify('已清除作品，服務設定已保留。');
+                      notify('已清除作品與對話，服務設定已保留。');
                     } catch {
                       notify('清除失敗，請稍後再試。');
                     } finally {
@@ -1792,9 +1864,11 @@ export default function App() {
                     }
                   }}
                 >
-                  刪除所有作品
+                  刪除所有作品與對話
                 </button>
-                <p className="hint">只刪除作品，保留 API Key 與偏好。刪除後無法復原，請先備份。</p>
+                <p className="hint">
+                  刪除作品、對話與附件，保留 API Key 與偏好。刪除後無法復原，請先備份。
+                </p>
               </div>
             </details>
             <details className="settings-section">
@@ -1803,7 +1877,7 @@ export default function App() {
               </summary>
               <div className="settings-section-body">
                 <p className="hint">
-                  將作品打包下載，換裝置時也能還原。備份包含照片、圖片、影片、描述與作品設定，不含
+                  將作品與對話打包下載，換裝置時也能還原。備份包含照片、圖片、影片、聊天歷史、附件與設定，不含
                   API Key。
                 </p>
                 <div className="backup-actions">
@@ -1843,7 +1917,7 @@ export default function App() {
                         setDataBusy(true);
                         try {
                           const count = await importBackup(file);
-                          notify(`已還原 ${count} 份作品，原有作品也已保留。`);
+                          notify(`已還原 ${count} 份作品與對話，原有資料也已保留。`);
                         } catch (err) {
                           notify(err instanceof Error ? err.message : '備份無法還原。');
                         } finally {
@@ -1862,7 +1936,7 @@ export default function App() {
                   onClick={async () => {
                     if (
                       !confirm(
-                        '重設這台裝置？所有作品、照片、Key 與顯示偏好都會刪除，無法復原。請先匯出備份。',
+                        '重設這台裝置？所有作品、對話、附件、Key 與顯示偏好都會刪除，無法復原。請先匯出備份。',
                       )
                     )
                       return;
@@ -1873,6 +1947,7 @@ export default function App() {
                       resetPreferences();
                       localStorage.removeItem(HOME_TOUR_KEY);
                       clearDraftDefaults();
+                      localStorage.removeItem('img-generator.chat-models');
                       setApiKey('');
                       setGuestMode(false);
                       setPreferences(readPreferences());

@@ -610,7 +610,7 @@ test('video first-frame generation plays and downloads, hides costs, and survive
   const backup = page.waitForEvent('download');
   await page.getByRole('button', { name: '匯出備份' }).click();
   const archive = await (await backup).path();
-  await page.getByRole('button', { name: '刪除所有作品', exact: true }).click();
+  await page.getByRole('button', { name: '刪除所有作品與對話', exact: true }).click();
   await page.getByLabel('還原備份', { exact: true }).setInputFiles(archive!);
   await expect(page.getByRole('status')).toContainText('已還原');
   expect(api.submitted).toHaveLength(3);
@@ -801,7 +801,7 @@ test('backup restore, deletion, key removal and offline images', async ({ page }
   expect(path).toBeTruthy();
   const usage = page.getByLabel('作品暫存大小').locator('strong');
   await expect(usage).toHaveText('1 KB');
-  await page.getByRole('button', { name: '刪除所有作品', exact: true }).click();
+  await page.getByRole('button', { name: '刪除所有作品與對話', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('已清除作品');
   await expect(usage).toHaveText('0 KB');
   await page.getByLabel('還原備份', { exact: true }).setInputFiles(path!);
