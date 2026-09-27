@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatModels } from './chat-models';
+import { chatModels, selectableChatModelIds } from './chat-models';
 import { listChatSessions, removeChatSession, saveChatSession, updateChatSession } from './chat-db';
 import { prepareChatAttachment } from './chat-attachments';
 import { recoverChatSession, sendChat, stopChat } from './chat-engine';
@@ -62,15 +62,30 @@ function rememberedModels(): ChatModelId[] {
       new Set(models).size === models.length &&
       models.every((id) => chatModelIds.includes(id))
     )
-      return models as ChatModelId[];
+      return upgradedSelection(models as ChatModelId[]);
   } catch {
     /* Use the default selection when storage is unavailable. */
   }
-  return ['gpt', 'gemini', 'claude'];
+  return [...selectableChatModelIds];
+}
+function upgradedSelection(models: readonly ChatModelId[]): ChatModelId[] {
+  const upgraded = models
+    .map((model) => {
+      if (model === 'gpt') return 'gpt54';
+      if (model === 'gemini') return 'geminiFlash';
+      return model;
+    })
+    .filter((model): model is (typeof selectableChatModelIds)[number] =>
+      (selectableChatModelIds as readonly string[]).includes(model),
+    );
+  return upgraded.length ? [...new Set(upgraded)] : [...selectableChatModelIds];
 }
 function ModelMark({ model }: { model: ChatModelId }) {
   return (
-    <span className={`chat-model-mark ${model}`} aria-hidden="true">
+    <span
+      className={`chat-model-mark ${chatModels[model].family.toLowerCase()}`}
+      aria-hidden="true"
+    >
       {chatModels[model].family.slice(0, 1)}
     </span>
   );
@@ -211,7 +226,7 @@ export function ChatWorkspace({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [storageFailed, setStorageFailed] = useState(false);
-  const [sidebar, setSidebar] = useState(() => window.innerWidth >= 900);
+  const [sidebar, setSidebar] = useState(false);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(rememberedModels);
   const [expanded, setExpanded] = useState<ChatModelId | null>(null);
@@ -238,6 +253,7 @@ export function ChatWorkspace({
   const textRef = useRef<HTMLTextAreaElement>(null);
   const current = sessions.find((item) => item.id === sessionId);
   const active = current ? isChatSessionActive(current) : false;
+  useEffect(() => setSidebar(false), [sessionId]);
   const refresh = useCallback(async () => {
     const ticket = ++refreshSequence.current;
     try {
@@ -391,7 +407,7 @@ export function ChatWorkspace({
       draft: edit ? turn.text : '',
       attachments: edit ? turn.attachments : [],
     });
-    setSelected([...current.models]);
+    setSelected(upgradedSelection(current.models));
   };
   const submit = async () => {
     if (!current || submitting || active || preparing) return;
@@ -453,12 +469,12 @@ export function ChatWorkspace({
   };
   const selection = (
     <div className="chat-model-picker">
-      {chatModelIds.map((model) => (
+      {selectableChatModelIds.map((model) => (
         <button
           key={model}
           className={`chat-model-option ${selected.includes(model) ? 'selected' : ''}`}
           aria-pressed={selected.includes(model)}
-          disabled={!selected.includes(model) && selected.length >= 3}
+          disabled={!selected.includes(model) && selected.length >= 2}
           onClick={() =>
             setSelected((previous) =>
               previous.includes(model)
@@ -618,7 +634,7 @@ export function ChatWorkspace({
           onClick={() => {
             setFork(null);
             onNavigate('');
-            if (window.innerWidth < 900) setSidebar(false);
+            setSidebar(false);
           }}
         >
           <Plus size={17} />
@@ -657,7 +673,7 @@ export function ChatWorkspace({
                   disabled={preparing}
                   onClick={() => {
                     onNavigate(session.id);
-                    if (window.innerWidth < 900) setSidebar(false);
+                    setSidebar(false);
                   }}
                 >
                   <span>{session.title}</span>
@@ -729,6 +745,13 @@ export function ChatWorkspace({
             新對話
           </button>
         </div>
+        {current?.models.some(
+          (model) => !selectableChatModelIds.includes(model as 'gpt54' | 'geminiFlash'),
+        ) && (
+          <p className="chat-legacy-note">
+            這是使用舊模型建立的對話。可從回答建立分支，或開新對話，選用目前的模型。
+          </p>
+        )}
         {storageFailed ? (
           <div className="chat-intro">
             <p role="alert">無法讀取本機對話，請確認儲存空間。</p>
@@ -746,7 +769,7 @@ export function ChatWorkspace({
               <MessageCircle size={32} />
             </div>
             <h1>{sessionId ? '找不到這份對話' : '一個問題，多種想法'}</h1>
-            <p>選擇 1–3 個 AI，一起聊聊。開始後模型就固定了，想換模型時可以開新對話。</p>
+            <p>選擇 1–2 個 AI，一起聊聊。開始後模型就固定了，想換模型時可以開新對話。</p>
             {selection}
             <button
               className="primary"
@@ -861,7 +884,7 @@ export function ChatWorkspace({
                   return (
                     <button
                       key={model}
-                      className={`chat-preview ${model}`}
+                      className={`chat-preview ${chatModels[model].family.toLowerCase()}`}
                       aria-label={`放大 ${chatModels[model].name}`}
                       onClick={() => {
                         setExpanded(model);
@@ -1026,7 +1049,7 @@ export function ChatWorkspace({
             </button>
             <h2 id="chat-fork-title">從這裡開新對話</h2>
             <p>
-              帶入你與 {chatModels[fork.source.model].name} 的問答，重新選擇 1–3 個
+              帶入你與 {chatModels[fork.source.model].name} 的問答，重新選擇 1–2 個
               AI。原對話會保留。
             </p>
             {selection}

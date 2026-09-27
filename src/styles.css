@@ -617,6 +617,9 @@ details[open] > summary > svg:last-child {
 .chat-create-card p {
   color: #746248;
 }
+.chat-create-card .create-cta {
+  color: #80613d;
+}
 .coming-soon {
   display: inline-block;
   margin-top: 12px;
@@ -634,6 +637,9 @@ details[open] > summary > svg:last-child {
   }
   .video-create-card:not(:disabled):hover {
     background: #dce8e4;
+  }
+  .chat-create-card:not(:disabled):hover {
+    background: #eae0d0;
   }
 }
 @media (min-width: 420px) {

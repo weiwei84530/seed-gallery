@@ -1,5 +1,7 @@
 import type { ChatHistoryMessage, ChatModelId } from './chat-types';
 
+export const selectableChatModelIds = ['gpt54', 'geminiFlash'] as const;
+
 export const chatModels: Record<
   ChatModelId,
   {
@@ -12,6 +14,24 @@ export const chatModels: Record<
     search: boolean;
   }
 > = {
+  gpt54: {
+    id: 'gpt54',
+    name: 'GPT-5.4',
+    family: 'GPT',
+    air: 'openai:gpt@5.4',
+    description: '擅長分析、圖片與文件問答',
+    images: true,
+    search: true,
+  },
+  geminiFlash: {
+    id: 'geminiFlash',
+    name: 'Gemini 3 Flash',
+    family: 'Gemini',
+    air: 'google:gemini@3-flash',
+    description: '兼顧速度與品質，可看圖及文件',
+    images: true,
+    search: true,
+  },
   gpt: {
     id: 'gpt',
     name: 'GPT-5.4 Mini',

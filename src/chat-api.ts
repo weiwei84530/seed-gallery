@@ -74,7 +74,11 @@ export async function buildChatRequest(
     deliveryMethod: 'stream',
     includeCost: true,
     numberResults: 1,
-    settings: { maxTokens: 4096, ...(systemPrompt ? { systemPrompt } : {}) },
+    settings: {
+      maxTokens: 4096,
+      ...(['gpt54', 'geminiFlash'].includes(model) ? { thinkingLevel: 'low' } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
+    },
     messages: apiMessages,
     ...(images.length ? { inputs: { images } } : {}),
     ...(search ? { tools: [{ type: 'search' }], toolChoice: { type: 'auto' } } : {}),
@@ -91,6 +95,7 @@ export function compatibilityRequest(
     stream: true,
     stream_options: { include_usage: true },
     max_completion_tokens: task.settings.maxTokens,
+    ...(task.settings.thinkingLevel ? { reasoning_effort: task.settings.thinkingLevel } : {}),
     ...(task.tools ? { tools: task.tools, tool_choice: 'auto' } : {}),
     messages: task.messages.map((message, index) => {
       const count =
@@ -175,9 +180,11 @@ export async function streamChat({
   onUpdate,
 }: ChatStreamOptions): Promise<ChatUpdate> {
   const task = await buildChatRequest(model, messages, search, taskUUID);
-  // Bind images to their actual message. Native task-level images lose this association.
+  // Prefer per-message images. GPT web search requires the native endpoint;
+  // its image positions are explicitly mapped in the system prompt above.
   const compatible =
-    ['deepseek', 'glm', 'kimi'].includes(model) || Boolean(task.inputs?.images.length);
+    !(model === 'gpt54' && search) &&
+    (['deepseek', 'glm', 'kimi'].includes(model) || Boolean(task.inputs?.images.length));
   const response = await fetch(
     compatible ? 'https://api.runware.ai/v1/chat/completions' : 'https://api.runware.ai/v1',
     {
@@ -246,7 +253,10 @@ export async function streamChat({
       onUpdate({ text, sources: [...sources.values()], cost });
       return;
     }
-    if (event.taskUUID !== taskUUID || event.taskType !== 'textInference')
+    // Runware's Claude adapter can omit the UUID as an empty string. This HTTP
+    // response belongs to exactly one submitted task; never accept another UUID.
+    const emptyClaudeId = model === 'claude' && event.taskUUID === '';
+    if ((!emptyClaudeId && event.taskUUID !== taskUUID) || event.taskType !== 'textInference')
       throw new Error('Runware 回應與請求不符。');
     const delta =
       event.delta && typeof event.delta === 'object'

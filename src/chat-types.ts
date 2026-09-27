@@ -1,4 +1,13 @@
-export const chatModelIds = ['gpt', 'gemini', 'claude', 'deepseek', 'glm', 'kimi'] as const;
+export const chatModelIds = [
+  'gpt54',
+  'geminiFlash',
+  'gpt',
+  'gemini',
+  'claude',
+  'deepseek',
+  'glm',
+  'kimi',
+] as const;
 export type ChatModelId = (typeof chatModelIds)[number];
 
 export interface ChatAttachment {

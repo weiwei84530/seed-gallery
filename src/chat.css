@@ -1,10 +1,10 @@
 .shell.chat-shell {
   width: 100%;
-  max-width: none;
+  max-width: 600px;
   height: var(--chat-viewport-height, 100dvh);
   min-height: 0;
   padding: 0;
-  margin: 0;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -50,18 +50,20 @@
   user-select: none;
 }
 .chat-sidebar {
-  flex: 0 0 0;
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 15;
   width: 0;
   min-width: 0;
   overflow: hidden;
   background: #eff1eb;
   display: flex;
   flex-direction: column;
-  transition: flex-basis 0.2s;
+  box-shadow: 16px 0 40px #23371c20;
+  transition: width 0.2s;
 }
 .chat-sidebar.open {
-  flex-basis: 264px;
-  width: 264px;
+  width: min(290px, 85%);
   padding: 12px;
   border-right: 1px solid #dfe5da;
 }
@@ -72,7 +74,11 @@
   margin-bottom: 14px;
 }
 .chat-sidebar-backdrop {
-  display: none;
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  background: #26382044;
 }
 .chat-history-search {
   margin: 16px 0 10px;
@@ -156,6 +162,14 @@
 .chat-toolbar > .chat-action:last-child {
   margin-left: auto;
   white-space: nowrap;
+}
+.chat-legacy-note {
+  flex: none;
+  padding: 8px 16px;
+  background: #f8efe2;
+  border-bottom: 1px solid #eadfce;
+  color: #715b42;
+  font-size: 12px;
 }
 .chat-intro {
   overflow-y: auto;
@@ -663,24 +677,6 @@
   position: absolute;
   right: 12px;
   top: 12px;
-}
-@media (max-width: 899px) {
-  .chat-sidebar {
-    position: absolute;
-    inset: 0 auto 0 0;
-    z-index: 15;
-    box-shadow: 16px 0 40px #23371c20;
-  }
-  .chat-sidebar.open {
-    width: min(290px, 85%);
-  }
-  .chat-sidebar-backdrop {
-    display: block;
-    position: absolute;
-    inset: 0;
-    z-index: 14;
-    background: #26382044;
-  }
 }
 @media (max-width: 599px) {
   .chat-shell > .topbar {

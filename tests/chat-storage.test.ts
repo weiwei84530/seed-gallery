@@ -172,6 +172,7 @@ it('roundtrips chat versions, attachments and sources; interrupts active importe
     ],
   });
   const fork = makeSession({
+    models: ['gpt54', 'geminiFlash'],
     fork: { sessionId: source.id, model: 'gpt', turnId: source.turns[0].id },
   });
   await saveChatSession(source);
@@ -191,6 +192,8 @@ it('roundtrips chat versions, attachments and sources; interrupts active importe
   const restored = await listChatSessions();
   const restoredSource = restored.find((session) => session.seed.length)!;
   const restoredFork = restored.find((session) => session.fork)!;
+  expect(restoredSource.models).toEqual(['gpt', 'gemini']);
+  expect(restoredFork.models).toEqual(['gpt54', 'geminiFlash']);
   expect(restoredSource.id).not.toBe(source.id);
   expect(restoredSource.turns[0].id).not.toBe(source.turns[0].id);
   expect(restoredSource.turns[0].answers.gpt![0].id).not.toBe(answerId);
