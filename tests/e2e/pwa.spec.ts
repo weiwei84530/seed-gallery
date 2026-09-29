@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { test, expect } from '@playwright/test';
 
+test.use({ serviceWorkers: 'allow' });
+
 const iphoneSafari =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 

@@ -6,7 +6,11 @@ export default defineConfig({
   timeout: 40000,
   expect: { timeout: 10000 },
   workers: 2,
-  use: { baseURL: 'http://127.0.0.1:43827', trace: 'retain-on-failure' },
+  use: {
+    baseURL: 'http://127.0.0.1:43827',
+    trace: 'retain-on-failure',
+    serviceWorkers: 'block',
+  },
   projects: [
     { name: 'android-chromium', use: { ...devices['Pixel 7'] } },
     { name: 'iphone-webkit', use: { ...devices['iPhone 13'] } },
