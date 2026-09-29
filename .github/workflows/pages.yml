@@ -22,7 +22,13 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright test tests/e2e/studio.spec.ts --project=iphone-webkit -g "first successful setup shows the home tour once"
       - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failures
+          path: test-results
       - name: Verify deployment contains only built assets
         run: |
           test ! -f dist/AGENTS.md
