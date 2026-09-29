@@ -6,29 +6,46 @@ type Request = {
   model: string;
   messages: { role: string; content: string | { type: string; text?: string }[] }[];
   inputs?: { images: string[] };
-  taskUUID: string;
+  taskUUID?: string;
   taskType: string;
-  tools?: unknown[];
+  tools?: { type: string }[];
 };
 async function setup(page: Page, hidden = false) {
   const requests: Request[] = [];
   await page.route('https://api.runware.ai/**', async (route) => {
     const body = route.request().postDataJSON();
-    const task = (Array.isArray(body) ? body[0] : body) as Request;
+    const raw = (Array.isArray(body) ? body[0] : body) as Request & { input?: Request['messages'] };
+    const task: Request = raw.input ? { ...raw, taskType: 'responses', messages: raw.input } : raw;
     if (task.taskType === 'authentication') return route.fulfill({ json: { data: [] } });
     if (task.taskType === 'accountManagement')
       return route.fulfill({ json: { data: [{ balance: 12.34 }] } });
     requests.push(task);
     const answer = `Answer from ${task.model}\n\n${'A useful response. '.repeat(60)}\nLAST LINE`;
-    const event = task.taskType
-      ? {
-          taskUUID: task.model.includes('haiku') ? '' : task.taskUUID,
-          taskType: task.taskType,
-          delta: { text: answer },
-          finishReason: 'stop',
-          cost: 0.001,
-        }
-      : { choices: [{ delta: { content: answer }, finish_reason: 'stop' }] };
+    const event =
+      task.taskType === 'responses'
+        ? {
+            type: 'response.completed',
+            response: {
+              model: task.model,
+              status: 'completed',
+              usage: { cost: 0.001 },
+              output: [
+                ...(task.tools?.some((tool) => tool.type === 'web_search')
+                  ? [{ type: 'web_search_call', status: 'completed' }]
+                  : []),
+                { type: 'message', content: [{ type: 'output_text', text: answer }] },
+              ],
+            },
+          }
+        : task.taskType
+          ? {
+              taskUUID: task.model.includes('haiku') ? '' : task.taskUUID,
+              taskType: task.taskType,
+              delta: { text: answer },
+              finishReason: 'stop',
+              cost: 0.001,
+            }
+          : { choices: [{ delta: { content: answer }, finish_reason: 'stop' }] };
     await route.fulfill({
       contentType: 'text/event-stream',
       body: `data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`,
@@ -85,7 +102,7 @@ test('two equal panels, isolated history, expand, fork, edit and responsive comp
   await expect(page.locator('.chat-preview').first()).toContainText('LAST LINE');
   await expect.poll(() => requests.length).toBe(2);
   await page.screenshot({ path: info.outputPath('chat-answers.png') });
-  await page.getByLabel('放大 GPT-5.4').click();
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await expect(page.locator('.chat-transcript')).toContainText('Answer from openai:');
   await expect(page.locator('.chat-workspace')).not.toContainText('US$');
   await send(page, 'Follow up');
@@ -99,7 +116,7 @@ test('two equal panels, isolated history, expand, fork, edit and responsive comp
   await page.getByRole('dialog').getByRole('button', { name: '建立新對話', exact: true }).click();
   await expect(page.locator('.chat-preview')).toHaveCount(2);
   expect(requests).toHaveLength(4);
-  await page.getByLabel('放大 GPT-5.4').click();
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await expect(page.locator('.chat-transcript')).toContainText('First question');
   await expect(page.locator('.chat-transcript')).not.toContainText('Follow up');
   await send(page, 'Branch question');
@@ -124,20 +141,31 @@ test('streaming permits drafting, waits for all models, preserves partial failur
     const original = window.fetch;
     const state = window as unknown as { finishChat: () => void };
     const streams: {
-      task: { taskUUID: string; model: string };
+      task: { taskUUID?: string; model: string; taskType?: string; input?: unknown };
       controller: ReadableStreamDefaultController<Uint8Array>;
     }[] = [];
     window.fetch = async (input, init) => {
-      const tasks = typeof init?.body === 'string' ? JSON.parse(init.body) : [];
-      const task = tasks[0];
-      if (task?.taskType !== 'textInference') return original(input, init);
+      const payload = typeof init?.body === 'string' ? JSON.parse(init.body) : [];
+      const task = Array.isArray(payload) ? payload[0] : payload;
+      if (task?.taskType !== 'textInference' && !task?.input && !task?.messages)
+        return original(input, init);
       return new Response(
         new ReadableStream({
           start(controller) {
             streams.push({ task, controller });
             controller.enqueue(
               new TextEncoder().encode(
-                `data: ${JSON.stringify({ taskUUID: task.taskUUID, taskType: 'textInference', delta: { text: `Partial ${task.model}` } })}\n\n`,
+                `data: ${JSON.stringify(
+                  task.input
+                    ? { type: 'response.output_text.delta', delta: `Partial ${task.model}` }
+                    : task.taskType === 'textInference'
+                      ? {
+                          taskUUID: task.taskUUID,
+                          taskType: 'textInference',
+                          delta: { text: `Partial ${task.model}` },
+                        }
+                      : { choices: [{ delta: { content: `Partial ${task.model}` } }] },
+                )}\n\n`,
               ),
             );
             init?.signal?.addEventListener(
@@ -154,7 +182,17 @@ test('streaming permits drafting, waits for all models, preserves partial failur
       window.fetch = original;
       for (const { task, controller } of streams) {
         if (task.model.startsWith('google')) continue;
-        const event = { errors: [{ code: 'streamingError' }] };
+        const event = task.input
+          ? {
+              type: 'response.failed',
+              response: {
+                model: task.model,
+                status: 'failed',
+                error: { code: 'streamingError' },
+                output: [],
+              },
+            }
+          : { errors: [{ code: 'streamingError' }] };
         controller.enqueue(
           new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`),
         );
@@ -169,12 +207,12 @@ test('streaming permits drafting, waits for all models, preserves partial failur
   await expect(page.getByLabel('送出給所有 AI')).toHaveCount(0);
   await page.evaluate(() => (window as unknown as { finishChat: () => void }).finishChat());
   await expect(page.getByRole('button', { name: '全部停止', exact: true })).toBeVisible();
-  await page.getByLabel('放大 Gemini 3 Flash').click();
+  await page.getByLabel('放大 Gemini 3.8 Flash').click();
   await page.getByRole('button', { name: '停止', exact: true }).click();
   await expect(page.getByLabel('送出給所有 AI')).toBeVisible();
   await expect(page.getByLabel('輸入聊天訊息')).toHaveValue('Next draft');
   await expect(page.locator('.chat-transcript')).toContainText('Partial google');
-  await page.getByLabel('切換放大的 AI').selectOption('gpt54');
+  await page.getByLabel('切換放大的 AI').selectOption('gpt6Sol');
   await expect(page.locator('.chat-inline-error')).toBeVisible();
   await page.getByRole('button', { name: '重新回答', exact: true }).click();
   await expect(page.locator('.chat-versions')).toContainText('2 / 2');
@@ -185,7 +223,7 @@ test('streaming permits drafting, waits for all models, preserves partial failur
   await page.getByLabel('上一個回答版本').click();
   await expect(page.locator('.chat-turn').first()).toContainText('Partial openai');
   await page.reload();
-  await page.getByLabel('放大 GPT-5.4').click();
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await expect(page.locator('.chat-turn').first()).toContainText('Answer from openai');
 });
 
@@ -231,7 +269,9 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
     requests.every(
       (request) =>
         Array.isArray(request.messages[0].content) &&
-        request.messages[0].content.filter((part) => part.type === 'image_url').length === 1,
+        request.messages[0].content.filter(
+          (part) => part.type === 'image_url' || part.type === 'input_image',
+        ).length === 1,
     ),
   ).toBe(true);
   const docx = zipSync({
@@ -267,11 +307,11 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
   expect(requests).toHaveLength(4);
 });
 
-test('new model selection supports search for every offered model', async ({ page }) => {
+test('only GPT-6 Sol offers search in new conversations', async ({ page }) => {
   const requests = await setup(page);
   await expect(page.locator('.chat-model-option')).toHaveCount(2);
-  await expect(page.locator('.chat-model-option').filter({ hasText: '可搜尋' })).toHaveCount(2);
-  await page.locator('.chat-model-option').filter({ hasText: 'GPT-5.4' }).click();
+  await expect(page.locator('.chat-model-option').filter({ hasText: '可搜尋' })).toHaveCount(1);
+  await page.locator('.chat-model-option').filter({ hasText: 'Gemini 3.8 Flash' }).click();
   await page.getByRole('button', { name: '開始對話 · 1 個 AI' }).click();
   await page.getByRole('button', { name: '搜尋', exact: true }).click();
   await expect(page.getByRole('button', { name: '搜尋', exact: true })).toHaveAttribute(
@@ -279,9 +319,9 @@ test('new model selection supports search for every offered model', async ({ pag
     'true',
   );
   await send(page, 'Hello');
-  await expect(page.locator('.chat-transcript')).toContainText('Answer from google:gemini@3-flash');
+  await expect(page.locator('.chat-transcript')).toContainText('Answer from openai:gpt@6-sol');
   expect(requests).toHaveLength(1);
-  expect(requests[0].tools).toEqual([{ type: 'search' }]);
+  expect(requests[0].tools).toEqual([{ type: 'web_search' }]);
 });
 
 test('legacy models retain their identity and Claude accepts the provider empty UUID', async ({
@@ -351,9 +391,10 @@ test('another tab observes the active lock and recovers after the streaming tab 
   await setup(page);
   await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
   const pending: Route[] = [];
-  await page.route('https://api.runware.ai/v1', async (route) => {
-    const [task] = route.request().postDataJSON();
-    if (task.taskType === 'textInference') {
+  await page.route('https://api.runware.ai/**', async (route) => {
+    const payload = route.request().postDataJSON();
+    const task = Array.isArray(payload) ? payload[0] : payload;
+    if (task.taskType === 'textInference' || task.input || task.messages) {
       pending.push(route);
       return;
     }

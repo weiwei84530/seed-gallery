@@ -76,7 +76,9 @@ export async function buildChatRequest(
     numberResults: 1,
     settings: {
       maxTokens: 4096,
-      ...(['gpt54', 'geminiFlash'].includes(model) ? { thinkingLevel: 'low' } : {}),
+      ...(['gpt54', 'geminiFlash', 'gpt6Sol', 'gemini38Flash'].includes(model)
+        ? { thinkingLevel: 'low' }
+        : {}),
       ...(systemPrompt ? { systemPrompt } : {}),
     },
     messages: apiMessages,
@@ -106,12 +108,38 @@ export function compatibilityRequest(
         role: message.role,
         content: images.length
           ? [
-              { type: 'text', text: message.content },
+              { type: 'text', text: task.messages[index].content },
               ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
             ]
           : message.content,
       };
     }),
+  };
+}
+
+export function responsesRequest(
+  task: Awaited<ReturnType<typeof buildChatRequest>>,
+  messages: ChatHistoryMessage[],
+) {
+  const compatible = compatibilityRequest(task, messages);
+  return {
+    model: task.model,
+    stream: true,
+    store: false,
+    max_output_tokens: task.settings.maxTokens,
+    reasoning: { effort: 'low' },
+    input: compatible.messages.map((message) => ({
+      role: message.role,
+      content:
+        typeof message.content === 'string'
+          ? message.content
+          : message.content.map((part) =>
+              'image_url' in part
+                ? { type: 'input_image', image_url: part.image_url.url }
+                : { type: 'input_text', text: part.text },
+            ),
+    })),
+    ...(task.tools ? { tools: [{ type: 'web_search' }], tool_choice: 'required' } : {}),
   };
 }
 
@@ -180,17 +208,29 @@ export async function streamChat({
   onUpdate,
 }: ChatStreamOptions): Promise<ChatUpdate> {
   const task = await buildChatRequest(model, messages, search, taskUUID);
+  const responses = model === 'gpt6Sol';
   // Prefer per-message images. GPT web search requires the native endpoint;
   // its image positions are explicitly mapped in the system prompt above.
   const compatible =
     !(model === 'gpt54' && search) &&
-    (['deepseek', 'glm', 'kimi'].includes(model) || Boolean(task.inputs?.images.length));
+    (['deepseek', 'glm', 'kimi', 'gemini38Flash'].includes(model) ||
+      Boolean(task.inputs?.images.length));
   const response = await fetch(
-    compatible ? 'https://api.runware.ai/v1/chat/completions' : 'https://api.runware.ai/v1',
+    responses
+      ? 'https://api.runware.ai/v1/responses'
+      : compatible
+        ? 'https://api.runware.ai/v1/chat/completions'
+        : 'https://api.runware.ai/v1',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify(compatible ? compatibilityRequest(task, messages) : [task]),
+      body: JSON.stringify(
+        responses
+          ? responsesRequest(task, messages)
+          : compatible
+            ? compatibilityRequest(task, messages)
+            : [task],
+      ),
       signal,
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
@@ -215,6 +255,7 @@ export async function streamChat({
   let cost: number | undefined;
   let done = false;
   let finishReason: string | undefined;
+  let searchCompleted = false;
   const sources = new Map<string, ChatSource>();
   const consume = (frame: string) => {
     const data = frame
@@ -224,7 +265,7 @@ export async function streamChat({
       .join('\n');
     if (!data) return;
     if (data === '[DONE]') {
-      done = true;
+      if (!responses) done = true;
       return;
     }
     let event: Record<string, unknown>;
@@ -238,6 +279,60 @@ export async function streamChat({
       throw new ApiError(typeof code === 'string' ? code : 'streamingError');
     }
     if (event.error) throw new Error('Runware 無法完成回答，請檢查模型或稍後重試。');
+    if (responses) {
+      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string')
+        text += event.delta;
+      if (event.type === 'response.output_text.annotation.added')
+        for (const source of sourcesFrom([event.annotation]))
+          if (sources.size < 100) sources.set(source.url, source);
+      if (event.type === 'response.web_search_call.completed') searchCompleted = true;
+      if (
+        ['response.completed', 'response.incomplete', 'response.failed'].includes(
+          String(event.type),
+        )
+      ) {
+        const result = event.response as
+          | {
+              status?: string;
+              model?: string;
+              error?: unknown;
+              usage?: { cost?: number };
+              output?: {
+                type?: string;
+                status?: string;
+                content?: { type?: string; text?: string; annotations?: unknown[] }[];
+              }[];
+            }
+          | undefined;
+        if (!result || (result.model && result.model !== task.model))
+          throw new Error('Runware 回應與請求不符。');
+        const output = result.output ?? [];
+        const parts = output
+          .filter((item) => item.type === 'message')
+          .flatMap((item) => item.content ?? []);
+        const finalText = parts
+          .filter((part) => part.type === 'output_text')
+          .map((part) => part.text ?? '')
+          .join('');
+        if (finalText) text = finalText;
+        for (const source of parts.flatMap((part) => sourcesFrom(part.annotations)))
+          if (sources.size < 100) sources.set(source.url, source);
+        searchCompleted ||= output.some(
+          (item) => item.type === 'web_search_call' && item.status === 'completed',
+        );
+        const billed = result.usage?.cost;
+        if (typeof billed === 'number' && Number.isFinite(billed) && billed >= 0) cost = billed;
+        onUpdate({ text, sources: [...sources.values()], cost });
+        if (result.error || event.type === 'response.failed')
+          throw new Error('Runware 無法完成回答。');
+        done = true;
+        finishReason =
+          event.type === 'response.completed' && result.status === 'completed' ? 'stop' : 'length';
+      } else {
+        onUpdate({ text, sources: [...sources.values()], cost });
+      }
+      return;
+    }
     if (compatible) {
       const choices = event.choices as
         { delta?: { content?: string }; finish_reason?: string }[] | undefined;
@@ -292,6 +387,8 @@ export async function streamChat({
   }
   if (!done) throw new Error('Runware 串流提前中斷；請先確認是否已產生費用。');
   if (finishReason && finishReason !== 'stop') throw new Error('模型未完整完成回應。');
+  if (responses && search && !searchCompleted)
+    throw new Error('尚未確認完成網路搜尋，這份回答尚未完成網路查證。');
   if (!text) throw new Error('模型沒有傳回文字。');
   return { text, sources: [...sources.values()], cost };
 }

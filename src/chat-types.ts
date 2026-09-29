@@ -1,4 +1,6 @@
 export const chatModelIds = [
+  'gpt6Sol',
+  'gemini38Flash',
   'gpt54',
   'geminiFlash',
   'gpt',

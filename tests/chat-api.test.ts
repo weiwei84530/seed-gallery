@@ -16,6 +16,7 @@ import {
   buildChatRequest,
   compatibilityRequest,
   providerSources,
+  responsesRequest,
   streamChat,
 } from '../src/chat-api';
 import { validateChatRequest } from '../src/chat-models';
@@ -99,6 +100,91 @@ describe('chat request validation', () => {
 
 describe('Runware SSE stream', () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it('uses Responses search and keeps verified source annotations', async () => {
+    const completed = {
+      type: 'response.completed',
+      response: {
+        status: 'completed',
+        model: 'openai:gpt@6-sol',
+        output: [
+          { type: 'web_search_call', status: 'completed' },
+          {
+            type: 'message',
+            content: [
+              {
+                type: 'output_text',
+                text: '最新公告',
+                annotations: [
+                  {
+                    type: 'url_citation',
+                    url: 'https://www.nasa.gov/news-release/test',
+                    title: 'NASA',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        body: stream([
+          'data: {"type":"response.output_text.delta","delta":"最"}\n\n',
+          `data: ${JSON.stringify(completed)}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      })),
+    );
+    const result = await streamChat({
+      key: 'hidden',
+      model: 'gpt6Sol',
+      messages: [user('最新公告')],
+      search: true,
+      taskUUID: 'id',
+      signal: new AbortController().signal,
+      onUpdate: vi.fn(),
+    });
+    expect(result.text).toBe('最新公告');
+    expect(result.sources).toEqual([
+      { title: 'NASA', url: 'https://www.nasa.gov/news-release/test' },
+    ]);
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe('https://api.runware.ai/v1/responses');
+    expect(JSON.parse(options!.body as string)).toMatchObject({
+      model: 'openai:gpt@6-sol',
+      store: false,
+      tools: [{ type: 'web_search' }],
+      tool_choice: 'required',
+    });
+  });
+
+  it('does not treat a Responses answer without a completed search as verified', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        body: stream([
+          'data: {"type":"response.completed","response":{"status":"completed","model":"openai:gpt@6-sol","output":[{"type":"message","content":[{"type":"output_text","text":"猜測答案"}]}]}}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      })),
+    );
+    await expect(
+      streamChat({
+        key: 'hidden',
+        model: 'gpt6Sol',
+        messages: [user('最新公告')],
+        search: true,
+        taskUUID: 'id',
+        signal: new AbortController().signal,
+        onUpdate: vi.fn(),
+      }),
+    ).rejects.toThrow('尚未確認完成網路搜尋');
+  });
 
   it('accepts the empty Claude adapter UUID only on its dedicated response stream', async () => {
     const run = (model: 'claude' | 'gpt', id: unknown) => {

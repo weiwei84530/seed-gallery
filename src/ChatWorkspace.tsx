@@ -71,8 +71,8 @@ function rememberedModels(): ChatModelId[] {
 function upgradedSelection(models: readonly ChatModelId[]): ChatModelId[] {
   const upgraded = models
     .map((model) => {
-      if (model === 'gpt') return 'gpt54';
-      if (model === 'gemini') return 'geminiFlash';
+      if (model === 'gpt' || model === 'gpt54') return 'gpt6Sol';
+      if (model === 'gemini' || model === 'geminiFlash') return 'gemini38Flash';
       return model;
     })
     .filter((model): model is (typeof selectableChatModelIds)[number] =>
@@ -489,7 +489,7 @@ export function ChatWorkspace({
             <small>{chatModels[model].description}</small>
             <small>
               {chatModels[model].images ? '可看圖與圖像文件' : '文字問答'}
-              {chatModels[model].search ? ' · 可搜尋' : ''}
+              {chatModels[model].search ? ' · 可搜尋' : ' · 無網路搜尋'}
             </small>
           </span>
           <span className="chat-selection-check">
@@ -746,7 +746,7 @@ export function ChatWorkspace({
           </button>
         </div>
         {current?.models.some(
-          (model) => !selectableChatModelIds.includes(model as 'gpt54' | 'geminiFlash'),
+          (model) => !selectableChatModelIds.includes(model as 'gpt6Sol' | 'gemini38Flash'),
         ) && (
           <p className="chat-legacy-note">
             這是使用舊模型建立的對話。可從回答建立分支，或開新對話，選用目前的模型。
