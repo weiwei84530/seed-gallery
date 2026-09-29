@@ -375,6 +375,61 @@ details[open] > summary > svg:last-child {
   font-size: 13px;
   margin-top: 12px;
 }
+.pwa-update,
+.pwa-transfer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  line-height: 1.6;
+}
+.pwa-update .secondary {
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+.pwa-transfer .text-button {
+  min-height: auto;
+  padding: 0;
+  color: #65552c;
+  text-decoration: underline;
+}
+.pwa-install-card {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 17px 18px;
+  border: 1px solid #dce5d9;
+  border-radius: 18px;
+  background: #f3f6ee;
+}
+.pwa-install-card strong {
+  color: var(--green);
+  font-size: 16px;
+}
+.pwa-install-card p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pwa-install-card > .secondary,
+.pwa-install-guide > .secondary {
+  justify-self: start;
+  min-height: 40px;
+  padding: 8px 15px;
+  font-size: 13px;
+}
+.pwa-install-guide {
+  display: grid;
+  gap: 10px;
+  padding-top: 3px;
+  border-top: 1px solid #dce5d9;
+}
+.pwa-install-guide small {
+  color: var(--muted);
+  line-height: 1.6;
+}
 .spin {
   animation: spin 1.5s linear infinite;
 }

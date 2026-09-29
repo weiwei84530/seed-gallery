@@ -36,6 +36,7 @@ import { exportBackup, importBackup } from './backup';
 import { HomeIllustration } from './HomeIllustration';
 import { HomeTour } from './HomeTour';
 import { WelcomeIllustration } from './WelcomeIllustration';
+import { usePwa } from './pwa';
 import { ModelPicker, ProviderLogo } from './ModelPicker';
 import { InspirationPanel } from './InspirationPanel';
 import { queueGeneration, resumeJobs, runJob } from './engine';
@@ -1085,6 +1086,10 @@ export default function App() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const toastSequence = useRef(0);
   const [dataBusy, setDataBusy] = useState(false);
+  const pwa = usePwa();
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [openBackupOnSettings, setOpenBackupOnSettings] = useState(false);
+  const backupDetails = useRef<HTMLDetailsElement>(null);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState(false);
@@ -1093,6 +1098,12 @@ export default function App() {
   >(apiKey ? 'checking' : 'unset');
   const [storageBytes, setStorageBytes] = useState<number | null>();
   const active = jobs.some(isActive) || chatActive;
+  useEffect(() => {
+    if (settings && openBackupOnSettings) {
+      if (backupDetails.current) backupDetails.current.open = true;
+      setOpenBackupOnSettings(false);
+    }
+  }, [settings, openBackupOnSettings]);
   useEffect(() => {
     if (!chatActive) return;
     // A closing tab can release its lock after the focus event in the surviving tab.
@@ -1366,6 +1377,22 @@ export default function App() {
     history.replaceState(state, '');
     applyNavigation(state);
   };
+  const openBackupSettings = () => {
+    setGuestMode(true);
+    setOpenBackupOnSettings(true);
+    navigate({ screen: 'home', overlay: 'settings' });
+  };
+  const exportLocalBackup = async () => {
+    setDataBusy(true);
+    try {
+      download(await exportBackup(), `little-studio-${new Date().toISOString().slice(0, 10)}.zip`);
+      notify('備份已準備好，請保存下載的 ZIP 檔。');
+    } catch {
+      notify('匯出失敗，可能是記憶體或儲存空間不足。請先個別下載重要作品。');
+    } finally {
+      setDataBusy(false);
+    }
+  };
   const connectionLabel = {
     unset: '未設定服務',
     checking: '檢查中',
@@ -1469,7 +1496,33 @@ export default function App() {
       )}
       {offline && (
         <div className="notice" role="status">
-          目前離線，仍可瀏覽已保存的作品。
+          目前離線。已完整保存在這個 App 的作品仍可瀏覽；生成圖片、影片、聊天與其他 API
+          功能需要網路。
+        </div>
+      )}
+      {pwa.waiting && (
+        <div className="pwa-update notice" role="status">
+          <span>新版本已準備好。完成編輯、生成與備份後，回到首頁或我的作品再更新。</span>
+          {pwa.updateBlocked && <span>請先關閉其他已開啟的種子畫廊頁面，再按一次更新。</span>}
+          {(screen === 'home' || screen === 'library') &&
+            enteredStudio &&
+            !settings &&
+            !active &&
+            !dataBusy &&
+            !loading && (
+              <button className="secondary" onClick={pwa.applyUpdate}>
+                更新並重新開啟
+              </button>
+            )}
+        </div>
+      )}
+      {pwa.standalone && pwa.isIos && !listedWorks.length && !loading && (
+        <div className="pwa-transfer notice">
+          若你曾在 Safari 使用，主畫面 App 的資料與 Safari 分開保存。請重新輸入 Key，並
+          <button className="text-button" onClick={openBackupSettings}>
+            還原 Safari 匯出的備份
+          </button>
+          。
         </div>
       )}
       {storageError && (
@@ -1584,6 +1637,53 @@ export default function App() {
                 </div>
                 <ArrowRight size={19} />
               </button>
+              {(pwa.canInstall || (pwa.isIos && !pwa.standalone)) && (
+                <section className="pwa-install-card">
+                  <div>
+                    <strong>放到手機主畫面</strong>
+                    <p>像 App 一樣開啟種子畫廊，也能在離線時查看這個 App 已保存的作品。</p>
+                  </div>
+                  {pwa.canInstall ? (
+                    <button className="secondary" onClick={() => void pwa.install()}>
+                      安裝 App
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        className="secondary"
+                        onClick={() => setShowInstallGuide((value) => !value)}
+                      >
+                        {showInstallGuide ? '收起步驟' : '查看加入步驟'}
+                      </button>
+                      {showInstallGuide && (
+                        <div className="pwa-install-guide">
+                          <p>
+                            iOS 主畫面 App 的資料與 Safari
+                            分開保存。若已有作品，請先匯出備份；安裝後在 App 的「設定 →
+                            備份與重置」還原，並重新輸入 Key。
+                          </p>
+                          <button
+                            className="secondary"
+                            disabled={dataBusy || active}
+                            onClick={() => void exportLocalBackup()}
+                          >
+                            <ArrowDownToLine size={17} />
+                            匯出備份
+                          </button>
+                          <p>
+                            {pwa.isSafari
+                              ? '在 Safari 點「分享」→「加入主畫面」，開啟「打開為網頁 App」，最後點「加入」。'
+                              : '請先用 Safari 開啟此網站，再點「分享」→「加入主畫面」。'}
+                          </p>
+                          <small>
+                            本機保存不是永久備份；離線不能生成，也不保證切到背景後繼續執行。
+                          </small>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+              )}
               {listedWorks.length > 0 && (
                 <section className="recent">
                   <div className="section-row">
@@ -1871,7 +1971,7 @@ export default function App() {
                 </p>
               </div>
             </details>
-            <details className="settings-section">
+            <details className="settings-section" ref={backupDetails}>
               <summary>
                 備份與重置 <ChevronDown size={17} />
               </summary>
@@ -1884,20 +1984,7 @@ export default function App() {
                   <button
                     className="secondary"
                     disabled={dataBusy || active}
-                    onClick={async () => {
-                      setDataBusy(true);
-                      try {
-                        download(
-                          await exportBackup(),
-                          `little-studio-${new Date().toISOString().slice(0, 10)}.zip`,
-                        );
-                        notify('備份已準備好，請保存下載的 ZIP 檔。');
-                      } catch {
-                        notify('匯出失敗，可能是記憶體或儲存空間不足。請先個別下載重要作品。');
-                      } finally {
-                        setDataBusy(false);
-                      }
-                    }}
+                    onClick={() => void exportLocalBackup()}
                   >
                     <ArrowDownToLine size={17} />
                     {dataBusy ? '處理中…' : '匯出備份'}
