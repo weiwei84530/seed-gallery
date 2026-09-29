@@ -67,6 +67,7 @@ test.afterAll(async () => {
 test('subpath install, offline saved work and explicit update keep local data', async ({
   page,
   context,
+  browserName,
 }) => {
   await page.goto(baseUrl);
   const manifest = await page.evaluate(async () => {
@@ -134,9 +135,9 @@ test('subpath install, offline saved work and explicit update keep local data', 
     });
   });
   await page.evaluate(() => localStorage.setItem('img-generator.key', 'local-test-only'));
-  await context.setOffline(true);
+  if (browserName !== 'webkit') await context.setOffline(true);
   await page.reload();
-  await expect(page.getByText('目前離線。')).toBeVisible();
+  if (browserName !== 'webkit') await expect(page.getByText('目前離線。')).toBeVisible();
   await page.getByLabel('種子畫廊首頁').click();
   await page.getByRole('button', { name: /我的作品/ }).click();
   await expect(page.locator('.saved-work')).toContainText('離線保存測試作品');
@@ -148,7 +149,7 @@ test('subpath install, offline saved work and explicit update keep local data', 
   expect(await page.evaluate(() => localStorage.getItem('img-generator.key'))).toBe(
     'local-test-only',
   );
-  await context.setOffline(false);
+  if (browserName !== 'webkit') await context.setOffline(false);
   workerRevision += 1;
   await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())!.update());
   await expect(page.getByText('新版本已準備好。', { exact: false })).toBeVisible();

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, chromium, type Page } from '@playwright/test';
 import { zipSync, strToU8 } from 'fflate';
 import type { Route } from '@playwright/test';
 
@@ -233,7 +233,9 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
 }) => {
   const requests = await setup(page);
   await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
-  const printer = await browser.newPage();
+  const printerBrowser =
+    browser.browserType().name() === 'chromium' ? browser : await chromium.launch();
+  const printer = await printerBrowser.newPage();
   const image = await printer.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 600;
@@ -253,6 +255,7 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
   await printer.setContent(`<img src="${image}">`);
   const pdf = await printer.pdf();
   await printer.close();
+  if (printerBrowser !== browser) await printerBrowser.close();
   await page
     .getByLabel('加入聊天附件')
     .setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: pdf });
