@@ -1300,7 +1300,7 @@ test('late balance replies cannot overwrite a replacement key and the same key c
   await expect(page.getByLabel('重新查詢餘額')).toContainText('7.00');
   const checks = replacementChecks;
   await replaceKey();
-  expect(replacementChecks).toBeGreaterThan(checks);
+  await expect.poll(() => replacementChecks).toBeGreaterThan(checks);
 });
 
 test('deleting one work frees its reference files and guest reset returns to setup', async ({
