@@ -36,7 +36,10 @@ test('rapid clicks submit once and reset removes saved data and credentials', as
   expect(await page.evaluate(() => localStorage.getItem('img-generator.key'))).toBeNull();
   await page.getByLabel('Runware API Key', { exact: true }).fill('new-fake-key');
   await page.getByRole('button', { name: '連線，開始創作' }).click();
-  await page.getByRole('dialog', { name: '首頁導覽' }).getByRole('button', { name: '知道了' }).click();
+  await page
+    .getByRole('dialog', { name: '首頁導覽' })
+    .getByRole('button', { name: '知道了' })
+    .click();
   await expect(page.getByLabel('重新查詢餘額')).toContainText('12.34');
   await page.getByRole('button', { name: /我的作品/ }).click();
   await expect(page.locator('.saved-work')).toHaveCount(0);
@@ -305,9 +308,49 @@ async function setup(page: Page, search = '') {
   await page.goto(`/${search}`);
   await page.getByLabel('Runware API Key', { exact: true }).fill('test-key-never-real');
   await page.getByRole('button', { name: '連線，開始創作' }).click();
-  await page.getByRole('dialog', { name: '首頁導覽' }).getByRole('button', { name: '知道了' }).click();
+  await page
+    .getByRole('dialog', { name: '首頁導覽' })
+    .getByRole('button', { name: '知道了' })
+    .click();
   await expect(page.getByRole('button', { name: /製作圖片/ })).toBeVisible();
 }
+
+test('blocked database upgrade explains the wait and resumes after the old tab closes', async ({
+  page,
+  context,
+}) => {
+  const oldTab = await context.newPage();
+  await oldTab.route('**/db-holder', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<title>Database holder</title>' }),
+  );
+  await oldTab.goto('/db-holder');
+  await oldTab.evaluate(async () => {
+    const request = indexedDB.open('img-generator', 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore('works', { keyPath: 'id' });
+        request.result.createObjectStore('jobs', { keyPath: 'id' }).createIndex('workId', 'workId');
+        request.result.createObjectStore('media', { keyPath: 'id' });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    (window as Window & { heldDatabase?: IDBDatabase }).heldDatabase = db;
+    localStorage.setItem('img-generator.key', 'test-key-never-real');
+  });
+  await mockRunware(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '請關閉其他種子畫廊頁面' })).toBeVisible();
+  await page.getByLabel('設定', { exact: true }).click();
+  await openSettingsSection(page, '備份與重置');
+  await expect(page.getByRole('button', { name: '清除資料並重設服務' })).toBeDisabled();
+  await oldTab.evaluate(() =>
+    (window as Window & { heldDatabase?: IDBDatabase }).heldDatabase?.close(),
+  );
+  await page.getByRole('dialog', { name: '設定' }).getByRole('button', { name: '關閉' }).click();
+  await expect(page.getByRole('dialog', { name: '首頁導覽' })).toBeVisible();
+  await oldTab.close();
+});
 
 test('first successful setup shows the home tour once', async ({ page }, testInfo) => {
   await mockRunware(page);
@@ -319,7 +362,9 @@ test('first successful setup shows the home tour once', async ({ page }, testInf
   await expect(tour).toContainText('點擊「種子畫廊」，就能隨時回到首頁。');
   await expect(page.locator('.toast')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('home-tour.png') });
-  expect(await page.evaluate(() => localStorage.getItem('img-generator.home-tour-seen'))).toBeNull();
+  expect(
+    await page.evaluate(() => localStorage.getItem('img-generator.home-tour-seen')),
+  ).toBeNull();
   await page.reload();
   await expect(tour).toBeVisible();
   await tour.getByRole('button', { name: '知道了' }).click();
@@ -1310,7 +1355,10 @@ test('deleting one work frees its reference files and guest reset returns to set
   page.on('dialog', (dialog) => void dialog.accept());
   await page.goto('/');
   await page.getByRole('button', { name: '稍後設定 API Key' }).click();
-  await page.getByRole('dialog', { name: '首頁導覽' }).getByRole('button', { name: '知道了' }).click();
+  await page
+    .getByRole('dialog', { name: '首頁導覽' })
+    .getByRole('button', { name: '知道了' })
+    .click();
   await newWork(page);
   await page.getByLabel('編輯照片', { exact: true }).setInputFiles({
     name: 'reference.png',

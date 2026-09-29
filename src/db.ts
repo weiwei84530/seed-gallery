@@ -29,7 +29,15 @@ export function asMedia(record: StoredMedia): Media {
     name: record.name,
   };
 }
+let upgradeBlocked = false;
+export function isDatabaseUpgradeBlocked() {
+  return upgradeBlocked;
+}
 export const database = openDB<StudioDB>('img-generator', 2, {
+  blocked() {
+    upgradeBlocked = true;
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('studio-db-blocked'));
+  },
   upgrade(db, oldVersion) {
     if (oldVersion < 1) {
       db.createObjectStore('works', { keyPath: 'id' });

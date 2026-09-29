@@ -31,7 +31,15 @@ import {
   Smartphone,
   Maximize2,
 } from 'lucide-react';
-import { clearWorks, getMedia, removeWork, saveWork, snapshot, storageUsage } from './db';
+import {
+  clearWorks,
+  getMedia,
+  isDatabaseUpgradeBlocked,
+  removeWork,
+  saveWork,
+  snapshot,
+  storageUsage,
+} from './db';
 import { exportBackup, importBackup } from './backup';
 import { HomeIllustration } from './HomeIllustration';
 import { HomeTour } from './HomeTour';
@@ -1092,6 +1100,7 @@ export default function App() {
   const backupDetails = useRef<HTMLDetailsElement>(null);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [loading, setLoading] = useState(true);
+  const [databaseUpgradeBlocked, setDatabaseUpgradeBlocked] = useState(isDatabaseUpgradeBlocked);
   const [storageError, setStorageError] = useState(false);
   const [connectionState, setConnectionState] = useState<
     'unset' | 'checking' | 'ready' | 'invalid' | 'unavailable'
@@ -1208,6 +1217,12 @@ export default function App() {
     }
   }, [apiKey]);
 
+  useEffect(() => {
+    const blocked = () => setDatabaseUpgradeBlocked(true);
+    window.addEventListener('studio-db-blocked', blocked);
+    if (isDatabaseUpgradeBlocked()) blocked();
+    return () => window.removeEventListener('studio-db-blocked', blocked);
+  }, []);
   useEffect(() => {
     let live = true;
     let sequence = 0;
@@ -1543,8 +1558,22 @@ export default function App() {
         />
       ) : loading ? (
         <div className="empty-state">
-          <LoaderCircle className="spin" />
-          正在打開畫室…
+          {databaseUpgradeBlocked ? (
+            <>
+              <h2>請關閉其他種子畫廊頁面</h2>
+              <p>
+                另一個分頁或主畫面 App 正占用本機資料。關閉後，這裡會繼續載入；作品不會因此刪除。
+              </p>
+              <button className="secondary" onClick={() => location.reload()}>
+                重新讀取
+              </button>
+            </>
+          ) : (
+            <>
+              <LoaderCircle className="spin" />
+              正在打開畫室…
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -1938,7 +1967,7 @@ export default function App() {
                 <p className="hint">可以到「我的作品」刪除不需要的作品，釋出儲存空間。</p>
                 <button
                   className="text-button danger"
-                  disabled={active || dataBusy}
+                  disabled={active || dataBusy || loading}
                   onClick={async () => {
                     if (
                       !confirm(
@@ -2019,7 +2048,7 @@ export default function App() {
                 </p>
                 <button
                   className="text-button danger"
-                  disabled={active || dataBusy}
+                  disabled={active || dataBusy || loading}
                   onClick={async () => {
                     if (
                       !confirm(
@@ -2051,7 +2080,13 @@ export default function App() {
                 >
                   清除資料並重設服務
                 </button>
-                <p className="hint">一併移除作品、API Key 與偏好。無法復原，請先備份。</p>
+                <p className="hint">
+                  {loading
+                    ? databaseUpgradeBlocked
+                      ? '另一個種子畫廊頁面仍在使用本機資料。關閉該頁面後才能安全重設。'
+                      : '本機資料仍在載入，完成後才能重設。'
+                    : '一併移除作品、API Key 與偏好。無法復原，請先備份。'}
+                </p>
               </div>
             </details>
             <div className="studio-credit">
