@@ -15,8 +15,6 @@
 }
 .chat-shell > .topbar {
   flex: none;
-  min-height: 0;
-  padding-block: calc(10px + env(safe-area-inset-top)) 10px;
   margin-inline: 0;
   position: relative;
   top: auto;
@@ -835,9 +833,6 @@
   }
 }
 @media (max-height: 600px) {
-  .chat-shell > .topbar {
-    padding-block: 8px;
-  }
   .chat-panels {
     gap: 6px;
     padding-block: 6px;
