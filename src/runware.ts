@@ -14,6 +14,7 @@ export interface ApiItem {
   finishReason?: string;
   code?: string;
   message?: string;
+  error?: { code?: string; message?: string };
   balance?: Balance | number;
   connectionSessionUUID?: string;
 }

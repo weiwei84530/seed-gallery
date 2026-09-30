@@ -984,7 +984,9 @@ function Workspace({
                                       ? video
                                         ? '這支影片尚未完成'
                                         : '這張圖尚未完成'
-                                      : '等待確認結果'}
+                                      : job.status === 'retrieval_failed'
+                                        ? '成果下載失敗'
+                                        : '等待確認結果'}
                                   </strong>
                                   <span>{job.message}</span>
                                   {job.status === 'failed' ? (
@@ -1024,7 +1026,7 @@ function Workspace({
                                         notify('正在查詢原任務，不會重新生成。');
                                       }}
                                     >
-                                      查詢原任務
+                                      {job.status === 'retrieval_failed' ? '重試取得成果' : '查詢原任務'}
                                     </button>
                                   )}
                                 </>
@@ -1666,11 +1668,39 @@ export default function App() {
                 </div>
                 <ArrowRight size={19} />
               </button>
+              {listedWorks.length > 0 && (
+                <section className="recent">
+                  <div className="section-row">
+                    <h2>最近使用</h2>
+                  </div>
+                  {listedWorks.slice(0, 3).map((work) => (
+                    <button className="recent-work" key={work.id} onClick={() => openWork(work)}>
+                      <span className="recent-thumbnail">
+                        {workPreview(work, jobs) ? (
+                          <LocalImage id={workPreview(work, jobs)!} alt="作品預覽" />
+                        ) : (
+                          <Images size={23} />
+                        )}
+                      </span>
+                      <div>
+                        <strong className={isSystemTitle(work.title) ? 'system-title' : undefined}>
+                          {work.title}
+                        </strong>
+                        <small>{date(work.updatedAt)}</small>
+                      </div>
+                      <ArrowRight size={17} />
+                    </button>
+                  ))}
+                </section>
+              )}
               {(pwa.canInstall || (pwa.isIos && !pwa.standalone)) && (
                 <section className="pwa-install-card">
-                  <div>
-                    <strong>放到手機主畫面</strong>
-                    <p>像 App 一樣開啟種子畫廊，也能在離線時查看這個 App 已保存的作品。</p>
+                  <div className="pwa-install-intro">
+                    <img src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" width={56} height={56} />
+                    <div>
+                      <strong>放到手機主畫面</strong>
+                      <p>像 App 一樣開啟種子畫廊，也能在離線時查看這個 App 已保存的作品。</p>
+                    </div>
                   </div>
                   {pwa.canInstall ? (
                     <button className="secondary" onClick={() => void pwa.install()}>
@@ -1711,31 +1741,6 @@ export default function App() {
                       )}
                     </>
                   )}
-                </section>
-              )}
-              {listedWorks.length > 0 && (
-                <section className="recent">
-                  <div className="section-row">
-                    <h2>最近使用</h2>
-                  </div>
-                  {listedWorks.slice(0, 3).map((work) => (
-                    <button className="recent-work" key={work.id} onClick={() => openWork(work)}>
-                      <span className="recent-thumbnail">
-                        {workPreview(work, jobs) ? (
-                          <LocalImage id={workPreview(work, jobs)!} alt="作品預覽" />
-                        ) : (
-                          <Images size={23} />
-                        )}
-                      </span>
-                      <div>
-                        <strong className={isSystemTitle(work.title) ? 'system-title' : undefined}>
-                          {work.title}
-                        </strong>
-                        <small>{date(work.updatedAt)}</small>
-                      </div>
-                      <ArrowRight size={17} />
-                    </button>
-                  ))}
                 </section>
               )}
             </>

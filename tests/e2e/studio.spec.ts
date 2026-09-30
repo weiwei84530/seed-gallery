@@ -15,6 +15,33 @@ test.afterEach(async ({ page }) => {
   }
 });
 
+test('mobile header keeps both captions and install card follows recent works', async ({ page }) => {
+  await mockRunware(page);
+  await setup(page);
+  await newWork(page);
+  await page.getByLabel('種子畫廊首頁').click();
+  await page.evaluate(() => {
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    window.dispatchEvent(event);
+  });
+  await expect(page.locator('.recent')).toBeVisible();
+  await expect(page.locator('.pwa-install-card img')).toBeVisible();
+  expect(
+    await page.locator('.recent, .pwa-install-card').evaluateAll((sections) =>
+      sections.map((section) => section.className),
+    ),
+  ).toEqual(['recent', 'pwa-install-card']);
+
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ width, height: 740 });
+    await expect(page.locator('.brand small')).toBeVisible();
+    await expect(page.locator('.header-tools .connected b')).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
+});
+
 test('rapid clicks submit once and reset removes saved data and credentials', async ({ page }) => {
   const api = await mockRunware(page);
   page.on('dialog', (d) => void d.accept());

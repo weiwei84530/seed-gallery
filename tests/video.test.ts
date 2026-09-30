@@ -179,9 +179,16 @@ it('roundtrips video bytes and continues importing version-one image backups', a
     keyTag: 'private-key-tag',
   };
   await (await database).put('jobs', job);
+  await (await database).put('jobs', {
+    ...job,
+    id: crypto.randomUUID(),
+    status: 'retrieval_failed',
+    mediaId: undefined,
+  });
   const backup = await exportBackup();
   await importBackup(new File([backup], 'backup.zip'));
   expect(await (await database).count('works')).toBe(2);
+  expect((await (await database).getAll('jobs')).some((saved) => saved.status === 'unknown')).toBe(true);
   expect((await (await database).getAll('media')).every((m) => m.type === 'video/mp4')).toBe(true);
   const entries = unzipSync(new Uint8Array(await backup.arrayBuffer()));
   const manifest = JSON.parse(strFromU8(entries['manifest.json']));

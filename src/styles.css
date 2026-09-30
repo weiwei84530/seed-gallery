@@ -396,12 +396,25 @@ details[open] > summary > svg:last-child {
 }
 .pwa-install-card {
   display: grid;
-  gap: 12px;
-  margin: 18px 0;
-  padding: 17px 18px;
+  gap: 15px;
+  margin: 24px 0 18px;
+  padding: 19px;
   border: 1px solid #dce5d9;
-  border-radius: 18px;
-  background: #f3f6ee;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #f5f7ef, #eaf1e8);
+  box-shadow: 0 8px 24px #4c6b4d0c;
+}
+.pwa-install-intro {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pwa-install-intro img {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  box-shadow: 0 5px 12px #2c514021;
 }
 .pwa-install-card strong {
   color: var(--green);
@@ -2104,6 +2117,8 @@ footer a {
   position: sticky;
   top: 0;
   z-index: 12;
+  flex-wrap: wrap;
+  row-gap: 8px;
   min-height: calc(91px + env(safe-area-inset-top));
   padding: calc(24px + env(safe-area-inset-top)) 0 22px;
   background: color-mix(in srgb, var(--paper) 95%, transparent);
@@ -2112,6 +2127,7 @@ footer a {
 .brand {
   gap: 11px;
   font-size: 19px;
+  flex-shrink: 0;
 }
 .header-tools {
   display: flex;
@@ -2119,6 +2135,7 @@ footer a {
   justify-content: flex-end;
   gap: 9px;
   min-width: 0;
+  flex-shrink: 0;
 }
 .header-tools .connected {
   font-size: 10px;
@@ -2140,7 +2157,6 @@ footer a {
   height: 40px;
 }
 @media (max-width: 599px) {
-  .topbar:has(.header-tools) .brand small,
   .header-tools .balance span {
     display: none;
   }
@@ -2675,10 +2691,6 @@ footer {
 }
 
 @media (max-width: 390px) {
-  .brand small,
-  .header-tools .connected b {
-    display: none;
-  }
   .header-tools .balance {
     max-width: 92px;
     font-size: 10px;

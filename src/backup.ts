@@ -23,7 +23,15 @@ const jobSchema = z.object({
   model: z.enum(modelIds),
   createdAt: z.number().finite(),
   draft: draftSchema,
-  status: z.enum(['queued', 'sending', 'processing', 'unknown', 'failed', 'succeeded']),
+  status: z.enum([
+    'queued',
+    'sending',
+    'processing',
+    'unknown',
+    'retrieval_failed',
+    'failed',
+    'succeeded',
+  ]),
   mediaId: id.optional(),
   cost: z.number().nonnegative().finite().optional(),
 });

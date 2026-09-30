@@ -36,7 +36,14 @@ export interface Work {
   updatedAt: number;
   draft: Draft;
 }
-export type JobStatus = 'queued' | 'sending' | 'processing' | 'unknown' | 'failed' | 'succeeded';
+export type JobStatus =
+  | 'queued'
+  | 'sending'
+  | 'processing'
+  | 'unknown'
+  | 'retrieval_failed'
+  | 'failed'
+  | 'succeeded';
 export interface Job {
   id: string;
   workId: string;
