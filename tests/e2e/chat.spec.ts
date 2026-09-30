@@ -1,7 +1,6 @@
 import { test, expect, chromium, type Page } from '@playwright/test';
 import { zipSync, strToU8 } from 'fflate';
 import type { Route } from '@playwright/test';
-
 type Request = {
   model: string;
   messages: { role: string; content: string | { type: string; text?: string }[] }[];
@@ -75,8 +74,9 @@ test('two equal panels, isolated history, expand, fork, edit and responsive comp
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const requests = await setup(page, true);
-  await expect(page.locator('.chat-model-option')).toHaveCount(2);
-  await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
+  await expect(page.locator('.chat-model-option')).toHaveCount(5);
+  await expect(page.locator('.chat-preview')).toHaveCount(0);
+  await send(page, 'First question');
   await expect(page.locator('.chat-preview')).toHaveCount(2);
   for (const width of [320, 390, 1200]) {
     await page.setViewportSize({ width, height: 844 });
@@ -98,12 +98,13 @@ test('two equal panels, isolated history, expand, fork, edit and responsive comp
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.screenshot({ path: info.outputPath(`chat-${width}.png`) });
   }
-  await send(page, 'First question');
   await expect(page.locator('.chat-preview').first()).toContainText('LAST LINE');
   await expect.poll(() => requests.length).toBe(2);
   await page.screenshot({ path: info.outputPath('chat-answers.png') });
   await page.getByLabel('放大 GPT-6 Sol').click();
-  await expect(page.locator('.chat-transcript')).toContainText('Answer from openai:');
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText(
+    'Answer from openai:',
+  );
   await expect(page.locator('.chat-workspace')).not.toContainText('US$');
   await send(page, 'Follow up');
   await expect.poll(() => requests.length).toBe(4);
@@ -111,18 +112,21 @@ test('two equal panels, isolated history, expand, fork, edit and responsive comp
     expect(request.messages[1].content).toContain(request.model);
     expect(request.messages).toHaveLength(3);
   }
+  await expect(page.locator('.chat-expanded')).toHaveCount(0);
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await page.getByRole('button', { name: '從這裡開新對話', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: '建立新對話', exact: true }).click();
   await expect(page.locator('.chat-preview')).toHaveCount(2);
   expect(requests).toHaveLength(4);
   await page.getByLabel('放大 GPT-6 Sol').click();
-  await expect(page.locator('.chat-transcript')).toContainText('First question');
-  await expect(page.locator('.chat-transcript')).not.toContainText('Follow up');
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText('First question');
+  await expect(page.locator('.chat-expanded .chat-transcript')).not.toContainText('Follow up');
   await send(page, 'Branch question');
   await expect.poll(() => requests.length).toBe(6);
   for (const request of requests.slice(4))
     expect(request.messages[1].content).toContain('openai:gpt');
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await page.getByRole('button', { name: '修改並建立分支' }).click();
   await page.getByRole('dialog').getByRole('button', { name: '建立新對話', exact: true }).click();
   await expect(page.getByLabel('輸入聊天訊息')).toHaveValue('Branch question');
@@ -136,7 +140,6 @@ test('streaming permits drafting, waits for all models, preserves partial failur
   page,
 }) => {
   await setup(page);
-  await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
   await page.evaluate(() => {
     const original = window.fetch;
     const state = window as unknown as { finishChat: () => void };
@@ -208,23 +211,27 @@ test('streaming permits drafting, waits for all models, preserves partial failur
   await page.evaluate(() => (window as unknown as { finishChat: () => void }).finishChat());
   await expect(page.getByRole('button', { name: '全部停止', exact: true })).toBeVisible();
   await page.getByLabel('放大 Gemini 3.8 Flash').click();
-  await page.getByRole('button', { name: '停止', exact: true }).click();
+  await page.getByRole('button', { name: '停止此 AI', exact: true }).click();
   await expect(page.getByLabel('送出給所有 AI')).toBeVisible();
   await expect(page.getByLabel('輸入聊天訊息')).toHaveValue('Next draft');
-  await expect(page.locator('.chat-transcript')).toContainText('Partial google');
-  await page.getByLabel('切換放大的 AI').selectOption('gpt6Sol');
-  await expect(page.locator('.chat-inline-error')).toBeVisible();
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText('Partial google');
+  await page.getByLabel('縮回 Gemini 3.8 Flash').click();
+  await page.getByLabel('放大 GPT-6 Sol').click();
+  await expect(page.locator('.chat-expanded .chat-inline-error')).toBeVisible();
   await page.getByRole('button', { name: '重新回答', exact: true }).click();
-  await expect(page.locator('.chat-versions')).toContainText('2 / 2');
+  await expect(page.locator('.chat-expanded .chat-versions')).toContainText('2 / 2');
   await page.getByLabel('上一個回答版本').click();
-  await expect(page.locator('.chat-transcript')).toContainText('Partial openai');
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText('Partial openai');
   await page.getByLabel('下一個回答版本').click();
   await send(page, 'After retry');
+  await page.getByLabel('放大 GPT-6 Sol').click();
   await page.getByLabel('上一個回答版本').click();
-  await expect(page.locator('.chat-turn').first()).toContainText('Partial openai');
+  await expect(page.locator('.chat-expanded .chat-turn').first()).toContainText('Partial openai');
   await page.reload();
   await page.getByLabel('放大 GPT-6 Sol').click();
-  await expect(page.locator('.chat-turn').first()).toContainText('Answer from openai');
+  await expect(page.locator('.chat-expanded .chat-turn').first()).toContainText(
+    'Answer from openai',
+  );
 });
 
 test('scanned PDF, DOCX table, original downloads and removal never submit', async ({
@@ -232,7 +239,6 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
   browser,
 }) => {
   const requests = await setup(page);
-  await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
   const printerBrowser =
     browser.browserType().name() === 'chromium' ? browser : await chromium.launch();
   const printer = await printerBrowser.newPage();
@@ -269,13 +275,14 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
   await page.getByLabel('送出給所有 AI').click();
   await expect.poll(() => requests.length).toBe(2);
   expect(
-    requests.every(
-      (request) =>
-        Array.isArray(request.messages[0].content) &&
-        request.messages[0].content.filter(
-          (part) => part.type === 'image_url' || part.type === 'input_image',
-        ).length === 1,
-    ),
+    requests.every((request) => {
+      const content = request.messages.find((message) => message.role === 'user')?.content;
+      return (
+        Array.isArray(content) &&
+        content.filter((part) => part.type === 'image_url' || part.type === 'input_image')
+          .length === 1
+      );
+    }),
   ).toBe(true);
   const docx = zipSync({
     '[Content_Types].xml': strToU8(
@@ -297,8 +304,13 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
   await expect(page.getByLabel('加入聊天附件')).toBeEnabled();
   await send(page, 'Read the table');
   await expect.poll(() => requests.length).toBe(4);
-  expect(requests[2].messages.at(-1)!.content).toContain('Cell A | Cell B');
-  expect(Array.isArray(requests[2].messages[0].content)).toBe(true);
+  const lastContent = requests[2].messages.at(-1)!.content;
+  expect(
+    typeof lastContent === 'string' ? lastContent : lastContent.map((part) => part.text).join(''),
+  ).toContain('Cell A | Cell B');
+  expect(
+    Array.isArray(requests[2].messages.find((message) => message.role === 'user')?.content),
+  ).toBe(true);
   await page
     .getByLabel('加入聊天附件')
     .setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('Saved note') });
@@ -312,19 +324,159 @@ test('scanned PDF, DOCX table, original downloads and removal never submit', asy
 
 test('only GPT-6 Sol offers search in new conversations', async ({ page }) => {
   const requests = await setup(page);
-  await expect(page.locator('.chat-model-option')).toHaveCount(2);
-  await expect(page.locator('.chat-model-option').filter({ hasText: '可搜尋' })).toHaveCount(1);
+  await expect(page.locator('.chat-model-option')).toHaveCount(5);
+  await expect(
+    page.locator('.chat-model-option').filter({ hasText: '可查詢網路資料' }),
+  ).toHaveCount(1);
   await page.locator('.chat-model-option').filter({ hasText: 'Gemini 3.8 Flash' }).click();
-  await page.getByRole('button', { name: '開始對話 · 1 個 AI' }).click();
-  await page.getByRole('button', { name: '搜尋', exact: true }).click();
-  await expect(page.getByRole('button', { name: '搜尋', exact: true })).toHaveAttribute(
+  await page.getByRole('button', { name: '搜尋網路', exact: true }).click();
+  await expect(page.getByRole('button', { name: '搜尋網路', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   await send(page, 'Hello');
-  await expect(page.locator('.chat-transcript')).toContainText('Answer from openai:gpt@6-sol');
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText(
+    'Answer from openai:gpt@6-sol',
+  );
   expect(requests).toHaveLength(1);
   expect(requests[0].tools).toEqual([{ type: 'web_search' }]);
+});
+
+test('selects three new models and sends the first question directly', async ({ page }) => {
+  const requests = await setup(page);
+  await page.locator('.chat-model-option.selected').first().click();
+  await page.locator('.chat-model-option.selected').first().click();
+  for (const name of ['MiniMax M3', 'DeepSeek V4.1 Flash', 'Claude Opus 5.5']) {
+    await page.locator('.chat-model-option').filter({ hasText: name }).click();
+  }
+  await expect(page.locator('.chat-model-option.selected')).toHaveCount(3);
+  await expect(page.locator('.chat-model-option.selected img')).toHaveCount(3);
+  await send(page, 'Compare your answers');
+  await expect(page.locator('.chat-preview')).toHaveCount(3);
+  await expect.poll(() => requests.length).toBe(3);
+  expect(requests.map((request) => request.model).sort()).toEqual([
+    'anthropic:claude@opus-5.5',
+    'deepseek:v4.1@flash',
+    'minimax:m3@0',
+  ]);
+});
+
+test('compact picker, independent scroll positions, fixed composer and six-line input', async ({
+  page,
+}, info) => {
+  await setup(page);
+  await expect(page.locator('.chat-model-price')).toHaveCount(5);
+  for (const width of [320, 390, 1200]) {
+    await page.setViewportSize({ width, height: 844 });
+    const option = (await page.locator('.chat-model-option').first().boundingBox())!;
+    expect(option.height).toBeGreaterThanOrEqual(88);
+    expect(option.width).toBeLessThanOrEqual(460);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: info.outputPath(`picker-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.chat-model-option').filter({ hasText: 'MiniMax M3' }).click();
+  await send(page, 'Scroll test');
+  const cards = page.locator('.chat-preview:visible');
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first().locator('.chat-preview-footer')).toContainText('0.001');
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const feed = cards.first().locator('.chat-transcript');
+  await feed.evaluate((node) => {
+    node.scrollTop = 25;
+    node.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(() => feed.evaluate((node) => node.scrollTop)).toBe(25);
+  const composer = await page.locator('.chat-composer').boundingBox();
+  await page.getByLabel('放大 GPT-6 Sol').click();
+  await expect(page.locator('.chat-card:visible')).toHaveCount(1);
+  expect((await page.locator('.chat-composer').boundingBox())!.y).toBe(composer!.y);
+  await page.locator('.chat-expanded .chat-transcript').evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+    node.dispatchEvent(new Event('scroll'));
+  });
+  await page.getByLabel('縮回 GPT-6 Sol').click();
+  await expect.poll(() => feed.evaluate((node) => node.scrollTop)).toBe(25);
+  await expect(cards.first().getByText('你', { exact: true })).toHaveCount(0);
+  await expect(cards.first().getByRole('button', { name: '複製', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('three-cards.png') });
+  const input = page.getByLabel('輸入聊天訊息');
+  const shortHeight = (await input.boundingBox())!.height;
+  await input.fill('A line\n'.repeat(4));
+  expect((await input.boundingBox())!.height).toBeGreaterThan(shortHeight);
+  await input.fill('A line\n'.repeat(12));
+  expect((await input.boundingBox())!.height).toBeLessThanOrEqual(164);
+  expect(await input.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  await input.fill('Short again');
+  expect((await input.boundingBox())!.height).toBe(shortHeight);
+  await page.getByLabel('放大 GPT-6 Sol').click();
+  await page.screenshot({ path: info.outputPath('expanded-card.png') });
+  await send(page, 'Send from expanded');
+  await expect(page.locator('.chat-preview:visible')).toHaveCount(3);
+  await page.getByLabel('展開歷史對話').click();
+  await page.screenshot({ path: info.outputPath('sidebar.png'), animations: 'disabled' });
+  for (const width of [390, 1200]) {
+    await page.setViewportSize({ width, height: 844 });
+    const sidebar = (await page.locator('.chat-sidebar').boundingBox())!;
+    const shell = (await page.locator('.chat-shell').boundingBox())!;
+    const header = (await page.locator('.topbar').boundingBox())!;
+    expect(sidebar.x).toBe(shell.x);
+    expect(sidebar.y).toBeCloseTo(header.y + header.height, 0);
+    await page.screenshot({
+      path: info.outputPath(`sidebar-${width}.png`),
+      animations: 'disabled',
+    });
+  }
+  await page.locator('.chat-sidebar').getByLabel('收起歷史對話').click();
+  await page.setViewportSize({ width: 390, height: 450 });
+  await input.fill('Keyboard line\n'.repeat(12));
+  expect((await input.boundingBox())!.height).toBeLessThanOrEqual(92);
+  const shortComposer = (await page.locator('.chat-composer').boundingBox())!;
+  expect(shortComposer.y + shortComposer.height).toBeLessThanOrEqual(450);
+  await expect(page.getByLabel('送出給所有 AI')).toBeVisible();
+  const shortCards = await cards.evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      top: node.getBoundingClientRect().top,
+      bottom: node.getBoundingClientRect().bottom,
+    })),
+  );
+  expect(shortCards[1].top).toBeGreaterThanOrEqual(shortCards[0].bottom);
+  expect(shortCards[2].top).toBeGreaterThanOrEqual(shortCards[1].bottom);
+  await page.screenshot({ path: info.outputPath('short-viewport.png') });
+});
+
+test('system prompt applies on next send in existing chats and prices follow the display preference', async ({
+  page,
+}) => {
+  const requests = await setup(page, true);
+  await expect(page.locator('.chat-model-price')).toHaveCount(0);
+  await send(page, 'Before preferences');
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await page.getByText('聊天偏好', { exact: true }).click();
+  await page
+    .getByLabel('系統提示詞', { exact: true })
+    .fill('Use short Traditional Chinese answers.');
+  await page.getByText('顯示偏好', { exact: true }).click();
+  await page.getByRole('switch', { name: /顯示餘額與費用/ }).check();
+  await page.getByRole('dialog').getByRole('button', { name: '關閉', exact: true }).click();
+  await send(page, 'After preferences');
+  for (const request of requests.slice(2)) {
+    expect(request.messages[0]).toEqual({
+      role: 'system',
+      content: 'Use short Traditional Chinese answers.',
+    });
+  }
+  await page.reload();
+  await page.locator('.chat-toolbar').getByRole('button', { name: '新對話', exact: true }).click();
+  await expect(page.locator('.chat-model-price')).toHaveCount(5);
+  await send(page, 'Persisted preferences');
+  for (const request of requests.slice(4))
+    expect(request.messages[0].content).toBe('Use short Traditional Chinese answers.');
 });
 
 test('legacy models retain their identity and Claude accepts the provider empty UUID', async ({
@@ -377,10 +529,12 @@ test('legacy models retain their identity and Claude accepts the provider empty 
     'openai:gpt@5.4-mini',
   ]);
   await page.getByLabel('放大 Claude Haiku 4.5').click();
-  await expect(page.locator('.chat-transcript')).toContainText('Answer from anthropic');
+  await expect(page.locator('.chat-expanded .chat-transcript')).toContainText(
+    'Answer from anthropic',
+  );
   await expect(page.locator('.chat-inline-error')).toHaveCount(0);
   await page.getByRole('button', { name: '從這裡開新對話', exact: true }).click();
-  await expect(page.getByRole('dialog').locator('.chat-model-option')).toHaveCount(2);
+  await expect(page.getByRole('dialog').locator('.chat-model-option')).toHaveCount(5);
   await page.getByRole('dialog').getByRole('button', { name: '建立新對話', exact: true }).click();
   await expect(page.locator('.chat-preview')).toHaveCount(2);
   await expect(page.locator('.chat-legacy-note')).toHaveCount(0);
@@ -392,7 +546,6 @@ test('another tab observes the active lock and recovers after the streaming tab 
   context,
 }) => {
   await setup(page);
-  await page.getByRole('button', { name: '開始對話 · 2 個 AI' }).click();
   const pending: Route[] = [];
   await page.route('https://api.runware.ai/**', async (route) => {
     const payload = route.request().postDataJSON();
@@ -423,8 +576,8 @@ test('another tab observes the active lock and recovers after the streaming tab 
   await page.close();
   await second.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(second.getByLabel('送出給所有 AI')).toBeVisible();
-  await expect(second.locator('.chat-preview').first()).toContainText('連線中斷');
+  await expect(second.locator('.chat-preview').first()).toContainText('連線已中斷');
   await second.reload();
-  await expect(second.locator('.chat-preview').first()).toContainText('連線中斷');
+  await expect(second.locator('.chat-preview').first()).toContainText('連線已中斷');
   expect(replayed).toBe(0);
 });

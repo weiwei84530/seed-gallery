@@ -183,6 +183,31 @@ details[open] > summary > svg:last-child {
   padding: 0 25px calc(12px + env(safe-area-inset-bottom));
   box-shadow: 0 0 80px #243d2610;
 }
+.chat-system-prompt {
+  display: grid;
+  gap: 8px;
+}
+.chat-system-prompt textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d8dfd2;
+  border-radius: 14px;
+  background: var(--tint);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  resize: vertical;
+}
+.chat-system-prompt textarea::placeholder {
+  color: #92998e;
+  font-weight: 400;
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .chat-system-prompt textarea {
+    font-size: 16px;
+  }
+}
 .topbar {
   display: flex;
   align-items: center;
@@ -256,12 +281,20 @@ details[open] > summary > svg:last-child {
   box-shadow: 0 5px 18px rgb(0 0 0 / 15%);
 }
 @keyframes home-tour-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes home-tour-focus {
-  from { transform: scale(1.25); }
-  to { transform: scale(1); }
+  from {
+    transform: scale(1.25);
+  }
+  to {
+    transform: scale(1);
+  }
 }
 .icon-button {
   display: inline-flex;
@@ -428,10 +461,22 @@ details[open] > summary > svg:last-child {
 }
 .pwa-install-card > .secondary,
 .pwa-install-guide > .secondary {
-  justify-self: start;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 15px;
   font-size: 13px;
+}
+.pwa-install-card > .secondary {
+  justify-self: end;
+  background: #e3ebdf;
+  border-color: #cddcc9;
+  color: #365b45;
+  box-shadow: 0 3px 8px #4c6b4d0c;
+}
+.pwa-install-card > .secondary:hover:not(:disabled) {
+  background: #d8e5d3;
+}
+.pwa-install-guide > .secondary {
+  justify-self: start;
 }
 .pwa-install-guide {
   display: grid;

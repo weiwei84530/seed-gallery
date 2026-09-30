@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { openDB } from 'idb';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { ChatAttachment, ChatSession } from '../src/chat-types';
 import { newDraft } from '../src/types';
 
@@ -27,6 +27,7 @@ const makeSession = (patch: Partial<ChatSession> = {}): ChatSession => ({
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   const { clearWorks } = await import('../src/db');
   await clearWorks();
 });
@@ -339,4 +340,43 @@ it('serializes updates and prevents stale creates or deletion while active', asy
   });
   await removeChatSession(session.id);
   expect(await getChatSession(session.id)).toBeUndefined();
+});
+
+it('backs up and restores the system prompt without copying the key or display preferences', async () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  });
+  const key = 'img-generator.preferences';
+  values.set('img-generator.key', 'test-key-never-real');
+  values.set(
+    key,
+    JSON.stringify({ showMoney: true, balanceLimit: 20, chatSystemPrompt: 'Use short answers.' }),
+  );
+  const { exportBackup, importBackup } = await import('../src/backup');
+  const backup = await exportBackup();
+  const files = unzipSync(new Uint8Array(await backup.arrayBuffer()));
+  const manifestText = strFromU8(files['manifest.json']);
+  expect(manifestText).not.toContain('test-key-never-real');
+  expect(JSON.parse(manifestText).chatSettings.systemPrompt).toBe('Use short answers.');
+  values.set(
+    key,
+    JSON.stringify({ showMoney: false, balanceLimit: 30, chatSystemPrompt: 'Changed' }),
+  );
+  await importBackup(new File([backup], 'backup.zip'));
+  expect(JSON.parse(values.get(key)!)).toEqual({
+    showMoney: false,
+    balanceLimit: 30,
+    chatSystemPrompt: 'Use short answers.',
+  });
+  const legacy = JSON.parse(manifestText);
+  delete legacy.chatSettings;
+  files['manifest.json'] = strToU8(JSON.stringify(legacy));
+  values.set(
+    key,
+    JSON.stringify({ showMoney: false, balanceLimit: 30, chatSystemPrompt: 'Keep this' }),
+  );
+  await importBackup(new File([new Uint8Array(zipSync(files))], 'legacy.zip'));
+  expect(JSON.parse(values.get(key)!).chatSystemPrompt).toBe('Keep this');
 });

@@ -37,13 +37,7 @@ export interface Work {
   draft: Draft;
 }
 export type JobStatus =
-  | 'queued'
-  | 'sending'
-  | 'processing'
-  | 'unknown'
-  | 'retrieval_failed'
-  | 'failed'
-  | 'succeeded';
+  'queued' | 'sending' | 'processing' | 'unknown' | 'retrieval_failed' | 'failed' | 'succeeded';
 export interface Job {
   id: string;
   workId: string;
@@ -65,6 +59,7 @@ export interface Media {
 export interface Preferences {
   showMoney: boolean;
   balanceLimit: number;
+  chatSystemPrompt?: string;
 }
 export interface Balance {
   amount: number;

@@ -21,6 +21,29 @@ import {
 } from '../src/chat-api';
 import { validateChatRequest } from '../src/chat-models';
 
+it('carries the custom system prompt through native, compatible and Responses requests', async () => {
+  const messages: ChatHistoryMessage[] = [{ role: 'user', content: 'Hello' }];
+  const task = await buildChatRequest(
+    'gpt6Sol',
+    messages,
+    false,
+    'id',
+    'Use concise Traditional Chinese.',
+  );
+  expect(task.settings.systemPrompt).toBe('Use concise Traditional Chinese.');
+  expect(compatibilityRequest(task, messages).messages[0]).toEqual({
+    role: 'system',
+    content: 'Use concise Traditional Chinese.',
+  });
+  expect(responsesRequest(task, messages).input[0]).toEqual({
+    role: 'system',
+    content: 'Use concise Traditional Chinese.',
+  });
+  const empty = await buildChatRequest('gpt6Sol', messages, false, 'id', '  ');
+  expect(empty.settings.systemPrompt).toBeUndefined();
+  expect(compatibilityRequest(empty, messages).messages).toEqual(messages);
+});
+
 const user = (
   content: string,
   attachments?: ChatHistoryMessage['attachments'],
@@ -69,10 +92,12 @@ describe('chat request validation', () => {
     expect(task.settings.systemPrompt).toContain('Images 1-1 belong to message 1');
     expect(task.settings.systemPrompt).toContain('Images 2-2 belong to message 3');
     const request = compatibilityRequest(task, messages);
-    expect(request.messages[0].content).toHaveLength(2);
-    expect(request.messages[1].content).toBe('A note');
-    expect(request.messages[2].content).toHaveLength(2);
-    expect(request.messages[3].content).toBe('Compare');
+    expect(request.messages[0].role).toBe('system');
+    const conversation = request.messages.filter((message) => message.role !== 'system');
+    expect(conversation[0].content).toHaveLength(2);
+    expect(conversation[1].content).toBe('A note');
+    expect(conversation[2].content).toHaveLength(2);
+    expect(conversation[3].content).toBe('Compare');
   });
 
   it('keeps file text and image turn association', async () => {
@@ -100,6 +125,52 @@ describe('chat request validation', () => {
 
 describe('Runware SSE stream', () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it('uses native image requests for MiniMax M3 and Claude Opus 4.8', async () => {
+    vi.mocked(getMedia).mockResolvedValue({
+      id: 'x',
+      name: 'note.png',
+      blob: new Blob(['x'], { type: 'image/png' }),
+    });
+    for (const model of ['minimaxM3', 'opus48'] as const) {
+      let requested: Record<string, unknown> | undefined;
+      const updates: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, options: RequestInit) => {
+          expect(url).toBe('https://api.runware.ai/v1');
+          requested = JSON.parse(String(options.body))[0];
+          return {
+            ok: true,
+            body: stream([
+              `data: ${JSON.stringify({ taskUUID: model === 'opus48' ? '' : 'id', taskType: 'textInference', delta: { text: model === 'minimaxM3' ? '<think>hidden' : 'Visible answer' } })}\n\n`,
+              ...(model === 'minimaxM3'
+                ? [
+                    `data: ${JSON.stringify({ taskUUID: 'id', taskType: 'textInference', delta: { text: ' reasoning</think>Visible answer' }, finishReason: 'stop' })}\n\n`,
+                  ]
+                : [
+                    `data: ${JSON.stringify({ taskUUID: '', taskType: 'textInference', finishReason: 'stop' })}\n\n`,
+                  ]),
+              'data: [DONE]\n\n',
+            ]),
+          };
+        }),
+      );
+      const result = await streamChat({
+        key: 'test',
+        model,
+        messages: [user('Read this', [attachment(['x'])])],
+        search: false,
+        taskUUID: 'id',
+        signal: new AbortController().signal,
+        onUpdate: (update) => updates.push(update.text),
+      });
+      expect(result.text).toBe('Visible answer');
+      expect(updates.every((value) => !value.includes('<think>'))).toBe(true);
+      expect(requested?.inputs).toEqual({ images: ['data:image/png;base64,AAAA'] });
+      if (model === 'minimaxM3') expect(requested?.settings).not.toHaveProperty('splitThinking');
+    }
+  });
 
   it('uses Responses search and keeps verified source annotations', async () => {
     const completed = {
@@ -278,7 +349,9 @@ describe('Runware SSE stream', () => {
     const [url, options] = vi.mocked(fetch).mock.calls[0];
     expect(url).toContain('/chat/completions');
     const body = JSON.parse(options!.body as string);
-    expect(body.messages[0].content[1]).toEqual({
+    expect(
+      body.messages.find((message: { role: string }) => message.role === 'user').content[1],
+    ).toEqual({
       type: 'image_url',
       image_url: { url: 'data:image/png;base64,AAAA' },
     });

@@ -1026,7 +1026,9 @@ function Workspace({
                                         notify('正在查詢原任務，不會重新生成。');
                                       }}
                                     >
-                                      {job.status === 'retrieval_failed' ? '重試取得成果' : '查詢原任務'}
+                                      {job.status === 'retrieval_failed'
+                                        ? '重試取得成果'
+                                        : '查詢原任務'}
                                     </button>
                                   )}
                                 </>
@@ -1072,7 +1074,13 @@ export default function App() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(topbar);
-    return () => observer.disconnect();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
   }, []);
   const [apiKey, setApiKey] = useState(readKey);
   const [showHomeTour, setShowHomeTour] = useState(false);
@@ -1592,6 +1600,7 @@ export default function App() {
                 apiKey={apiKey}
                 showMoney={preferences.showMoney}
                 sessionId={chatId}
+                systemPrompt={preferences.chatSystemPrompt ?? ''}
                 onNavigate={(id) => navigate({ screen: 'chat', sessionId: id })}
                 onSettings={() =>
                   navigate({ screen: 'chat', sessionId: chatId, overlay: 'settings' })
@@ -1696,7 +1705,12 @@ export default function App() {
               {(pwa.canInstall || (pwa.isIos && !pwa.standalone)) && (
                 <section className="pwa-install-card">
                   <div className="pwa-install-intro">
-                    <img src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" width={56} height={56} />
+                    <img
+                      src={`${import.meta.env.BASE_URL}icon-192.png`}
+                      alt=""
+                      width={56}
+                      height={56}
+                    />
                     <div>
                       <strong>放到手機主畫面</strong>
                       <p>像 App 一樣開啟種子畫廊，也能在離線時查看這個 App 已保存的作品。</p>
@@ -1913,6 +1927,26 @@ export default function App() {
             </details>
             <details className="settings-section">
               <summary>
+                聊天偏好 <ChevronDown size={17} />
+              </summary>
+              <div className="settings-section-body">
+                <label className="chat-system-prompt">
+                  系統提示詞
+                  <textarea
+                    rows={3}
+                    maxLength={12000}
+                    value={preferences.chatSystemPrompt ?? ''}
+                    placeholder="例如：請用繁體中文，簡短回答。"
+                    onChange={(event) =>
+                      setPreferences({ ...preferences, chatSystemPrompt: event.target.value })
+                    }
+                  />
+                </label>
+                <p className="hint">告訴 AI 你希望它怎麼回答。</p>
+              </div>
+            </details>
+            <details className="settings-section">
+              <summary>
                 服務連線 <ChevronDown size={17} />
               </summary>
               <div className="settings-section-body">
@@ -2038,6 +2072,7 @@ export default function App() {
                         setDataBusy(true);
                         try {
                           const count = await importBackup(file);
+                          setPreferences(readPreferences());
                           notify(`已還原 ${count} 份作品與對話，原有資料也已保留。`);
                         } catch (err) {
                           notify(err instanceof Error ? err.message : '備份無法還原。');
@@ -2049,7 +2084,8 @@ export default function App() {
                   </label>
                 </div>
                 <p className="hint">
-                  還原會保留原有作品。單次可匯入 250 MB 以內的 ZIP；重要成果也請另外下載保存。
+                  還原會保留原有作品，並套用備份中的聊天系統提示詞。單次可匯入 250 MB 以內的
+                  ZIP；重要成果也請另外下載保存。
                 </p>
                 <button
                   className="text-button danger"

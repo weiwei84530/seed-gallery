@@ -7,6 +7,7 @@ import { chatModelIds } from './chat-types';
 import { modelIds } from './types';
 import { draftSchema } from './draft-schema';
 import { models } from './models';
+import { initialPreferences, savePreferences } from './preferences';
 
 const id = z.string().uuid();
 const workSchema = z.object({
@@ -117,6 +118,7 @@ const manifestSchema = z
     works: z.array(workSchema).max(10000),
     jobs: z.array(jobSchema).max(50000),
     chats: z.array(chatSchema).max(10000).optional(),
+    chatSettings: z.object({ systemPrompt: z.string().max(12000) }).optional(),
     media: z
       .array(
         z.object({
@@ -159,6 +161,13 @@ export async function exportBackup(): Promise<Blob> {
     works,
     jobs: jobs.map(({ keyTag: _tag, message: _message, ...job }) => job),
     chats,
+    chatSettings: {
+      systemPrompt:
+        typeof localStorage === 'undefined'
+          ? ''
+          : (initialPreferences(localStorage.getItem('img-generator.preferences'), '')
+              .chatSystemPrompt ?? ''),
+    },
     media: selected.map(({ id, blob, name }) => ({ id, type: blob.type, name })),
   };
   const manifestBytes = strToU8(JSON.stringify(manifest));
@@ -332,6 +341,15 @@ export async function importBackup(file: File) {
   for (const j of jobs) await tx.objectStore('jobs').add(j);
   for (const chat of importedChats) await tx.objectStore('chats').add(chat);
   await tx.done;
+  if (data.chatSettings && typeof localStorage !== 'undefined') {
+    try {
+      const preferences = initialPreferences(localStorage.getItem('img-generator.preferences'), '');
+      savePreferences({ ...preferences, chatSystemPrompt: data.chatSettings.systemPrompt });
+    } catch {
+      changed();
+      throw new Error('作品已還原，但聊天偏好無法保存，請確認瀏覽器允許本機儲存。');
+    }
+  }
   changed();
   return works.length + importedChats.length;
 }

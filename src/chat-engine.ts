@@ -68,7 +68,12 @@ export async function recoverChatSession(id: string) {
   });
 }
 
-async function runModel(session: ChatSession, model: ChatModelId, key: string) {
+async function runModel(
+  session: ChatSession,
+  model: ChatModelId,
+  key: string,
+  systemPrompt?: string,
+) {
   const turn = session.turns.at(-1)!;
   const answer = turn.answers[model]!.at(-1)!;
   const controller = new AbortController();
@@ -114,6 +119,7 @@ async function runModel(session: ChatSession, model: ChatModelId, key: string) {
       model,
       messages,
       search: turn.search,
+      systemPrompt,
       taskUUID: answer.taskUUID,
       signal: controller.signal,
       onUpdate(update) {
@@ -156,6 +162,7 @@ export function sendChat(options: {
   attachments: ChatAttachment[];
   search: boolean;
   retryModel?: ChatModelId;
+  systemPrompt?: string;
 }) {
   return new Promise<void>((resolve, reject) => {
     if (!navigator.locks) {
@@ -230,7 +237,9 @@ export function sendChat(options: {
           value.updatedAt = Date.now();
         });
         resolve();
-        await Promise.allSettled(targets.map((model) => runModel(session, model, options.key)));
+        await Promise.allSettled(
+          targets.map((model) => runModel(session, model, options.key, options.systemPrompt)),
+        );
       })
       .catch(reject);
   });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   ArrowUp,
@@ -23,7 +23,12 @@ import {
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatModels, selectableChatModelIds } from './chat-models';
+import {
+  chatModels,
+  chatTokenPrices,
+  maxSelectedChatModels,
+  selectableChatModelIds,
+} from './chat-models';
 import { listChatSessions, removeChatSession, saveChatSession, updateChatSession } from './chat-db';
 import { prepareChatAttachment } from './chat-attachments';
 import { recoverChatSession, sendChat, stopChat } from './chat-engine';
@@ -40,10 +45,23 @@ import {
 } from './chat-types';
 import { getMedia } from './db';
 import { download } from './media';
+import openaiLogo from './assets/providers/openai.png';
+import googleLogo from './assets/providers/google.png';
+import minimaxLogo from './assets/providers/minimax.png';
+import deepseekLogo from './assets/providers/deepseek.png';
+import claudeLogo from './assets/providers/claude.png';
 import './chat.css';
 
 export const CHAT_SELECTION_KEY = 'img-generator.chat-models';
 const money = (value: number) => `US$ ${value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`;
+const chatProviderLogos: Partial<Record<ChatModelId, string>> = {
+  gpt6Sol: openaiLogo,
+  gemini38Flash: googleLogo,
+  minimaxM3: minimaxLogo,
+  deepseek: deepseekLogo,
+  opus48: claudeLogo,
+  opus55: claudeLogo,
+};
 const statusText = {
   queued: '等待回答',
   streaming: '正在回答',
@@ -58,7 +76,7 @@ function rememberedModels(): ChatModelId[] {
     if (
       Array.isArray(models) &&
       models.length >= 1 &&
-      models.length <= 3 &&
+      models.length <= maxSelectedChatModels &&
       new Set(models).size === models.length &&
       models.every((id) => chatModelIds.includes(id))
     )
@@ -66,27 +84,31 @@ function rememberedModels(): ChatModelId[] {
   } catch {
     /* Use the default selection when storage is unavailable. */
   }
-  return [...selectableChatModelIds];
+  return ['gpt6Sol', 'gemini38Flash'];
 }
 function upgradedSelection(models: readonly ChatModelId[]): ChatModelId[] {
   const upgraded = models
     .map((model) => {
       if (model === 'gpt' || model === 'gpt54') return 'gpt6Sol';
       if (model === 'gemini' || model === 'geminiFlash') return 'gemini38Flash';
+      if (model === 'opus48') return 'opus55';
       return model;
     })
     .filter((model): model is (typeof selectableChatModelIds)[number] =>
       (selectableChatModelIds as readonly string[]).includes(model),
     );
-  return upgraded.length ? [...new Set(upgraded)] : [...selectableChatModelIds];
+  return upgraded.length
+    ? [...new Set(upgraded)].slice(0, maxSelectedChatModels)
+    : ['gpt6Sol', 'gemini38Flash'];
 }
 function ModelMark({ model }: { model: ChatModelId }) {
+  const logo = chatProviderLogos[model];
   return (
     <span
       className={`chat-model-mark ${chatModels[model].family.toLowerCase()}`}
       aria-hidden="true"
     >
-      {chatModels[model].family.slice(0, 1)}
+      {logo ? <img src={logo} alt="" /> : chatModels[model].family.slice(0, 1)}
     </span>
   );
 }
@@ -207,9 +229,118 @@ function Sources({ items }: { items: { title: string; url: string }[] }) {
   );
 }
 
+function ChatPanel({
+  model,
+  expanded,
+  hidden,
+  single,
+  revision,
+  children,
+  footer,
+  onToggle,
+  onStop,
+}: {
+  model: ChatModelId;
+  expanded: boolean;
+  hidden: boolean;
+  single: boolean;
+  revision: unknown;
+  children: ReactNode;
+  footer: ReactNode;
+  onToggle: () => void;
+  onStop?: () => void;
+}) {
+  const feed = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  const splitPosition = useRef(0);
+  const splitFollow = useRef(true);
+  const adjusting = useRef(false);
+  const wasExpanded = useRef(expanded);
+  useLayoutEffect(() => {
+    const node = feed.current;
+    if (!node || hidden) return;
+    adjusting.current = true;
+    if (wasExpanded.current && !expanded) {
+      follow.current = splitFollow.current;
+      node.scrollTop = follow.current ? node.scrollHeight : splitPosition.current;
+    } else if (follow.current) node.scrollTop = node.scrollHeight;
+    wasExpanded.current = expanded;
+    const frame = requestAnimationFrame(() => {
+      adjusting.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [expanded, hidden, revision]);
+  useEffect(() => {
+    const node = feed.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      if (!hidden && follow.current) node.scrollTop = node.scrollHeight;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hidden]);
+  return (
+    <section
+      className={`chat-card ${expanded ? 'chat-expanded' : 'chat-preview'} ${hidden ? 'chat-card-hidden' : ''}`}
+      aria-hidden={hidden}
+      inert={hidden}
+      aria-label={chatModels[model].name}
+    >
+      <div className="chat-panel-heading">
+        <ModelMark model={model} />
+        <strong>{chatModels[model].name}</strong>
+        {!single && (
+          <button
+            className="chat-expand-toggle"
+            aria-label={`${expanded ? '縮回' : '放大'} ${chatModels[model].name}`}
+            aria-expanded={expanded}
+            onClick={() => {
+              if (!expanded) {
+                splitPosition.current = feed.current?.scrollTop ?? 0;
+                splitFollow.current = follow.current;
+              }
+              onToggle();
+            }}
+          >
+            {expanded ? <ArrowLeft size={18} /> : <Maximize2 size={18} />}
+            {expanded ? '返回分割' : '放大閱讀'}
+          </button>
+        )}
+        {single && onStop && (
+          <button className="chat-action" onClick={onStop}>
+            <Square size={15} />
+            停止
+          </button>
+        )}
+      </div>
+      <div
+        className="chat-transcript"
+        ref={feed}
+        tabIndex={0}
+        aria-label={`${chatModels[model].name} 的對話`}
+        onScroll={() => {
+          const node = feed.current;
+          if (!node || hidden || adjusting.current) return;
+          follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
+        }}
+      >
+        {children}
+      </div>
+      {!expanded && footer}
+      {expanded && !single && onStop && (
+        <button className="chat-model-stop chat-action" onClick={onStop}>
+          <Square size={15} />
+          停止此 AI
+        </button>
+      )}
+    </section>
+  );
+}
+
 interface Props {
   apiKey: string;
   showMoney: boolean;
+  systemPrompt: string;
   sessionId: string;
   onNavigate: (id: string) => void;
   onSettings: () => void;
@@ -218,6 +349,7 @@ interface Props {
 export function ChatWorkspace({
   apiKey,
   showMoney,
+  systemPrompt,
   sessionId,
   onNavigate,
   onSettings,
@@ -248,12 +380,29 @@ export function ChatWorkspace({
   const route = useRef(sessionId);
   route.current = sessionId;
   const dialog = useRef<HTMLElement>(null);
-  const feed = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const current = sessions.find((item) => item.id === sessionId);
   const active = current ? isChatSessionActive(current) : false;
   useEffect(() => setSidebar(false), [sessionId]);
+  useLayoutEffect(() => {
+    if (!sidebar) return;
+    const topbar = document.querySelector('.chat-shell > .topbar');
+    if (!topbar) return;
+    const updateTop = () => {
+      document.documentElement.style.setProperty(
+        '--chat-sidebar-top',
+        `${topbar.getBoundingClientRect().bottom}px`,
+      );
+    };
+    updateTop();
+    const observer = new ResizeObserver(updateTop);
+    observer.observe(topbar);
+    window.addEventListener('resize', updateTop);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateTop);
+    };
+  }, [sidebar]);
   const refresh = useCallback(async () => {
     const ticket = ++refreshSequence.current;
     try {
@@ -285,7 +434,6 @@ export function ChatWorkspace({
     initialized.current = '';
     setExpanded(null);
     setViewVersions({});
-    follow.current = true;
     if (sessionId)
       void recoverChatSession(sessionId).catch(() => notify('無法確認對話狀態，請稍後再試。'));
   }, [sessionId, notify]);
@@ -297,9 +445,24 @@ export function ChatWorkspace({
       setSearch(current.search);
     }
   }, [current]);
-  useEffect(() => {
-    if (feed.current && follow.current) feed.current.scrollTop = feed.current.scrollHeight;
-  }, [current, expanded]);
+  useLayoutEffect(() => {
+    const node = textRef.current;
+    if (!node) return;
+    const resize = () => {
+      node.style.height = 'auto';
+      node.style.height = `${Math.min(node.scrollHeight, 164)}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(() => {
+      if (node.clientWidth !== width) {
+        width = node.clientWidth;
+        resize();
+      }
+    });
+    let width = node.clientWidth;
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, loaded, current?.id]);
   useEffect(() => {
     if (!fork) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -361,32 +524,42 @@ export function ChatWorkspace({
         notify('草稿無法保存，請檢查裝置空間。'),
       );
   };
+  const createSession = async (
+    draft: string,
+    draftAttachments: ChatAttachment[],
+    navigate = true,
+  ) => {
+    const session: ChatSession = {
+      id: crypto.randomUUID(),
+      title: fork ? '延續的新對話' : '新對話',
+      models: [...selected],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      seed: fork?.seed ?? [],
+      turns: [],
+      draft,
+      draftAttachments,
+      search: false,
+      ...(fork ? { fork: fork.source } : {}),
+    };
+    await saveChatSession(session);
+    try {
+      localStorage.setItem(CHAT_SELECTION_KEY, JSON.stringify(selected));
+    } catch {
+      notify('模型偏好無法保存。');
+    }
+    if (navigate) {
+      onNavigate(session.id);
+      await refresh();
+    }
+    return session;
+  };
   const create = async () => {
     if (!selected.length || creating) return;
     setCreating(true);
     try {
-      const session: ChatSession = {
-        id: crypto.randomUUID(),
-        title: fork ? '延續的新對話' : '新對話',
-        models: [...selected],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        seed: fork?.seed ?? [],
-        turns: [],
-        draft: fork?.draft ?? '',
-        draftAttachments: fork?.attachments ?? [],
-        search: false,
-        ...(fork ? { fork: fork.source } : {}),
-      };
-      await saveChatSession(session);
-      try {
-        localStorage.setItem(CHAT_SELECTION_KEY, JSON.stringify(selected));
-      } catch {
-        notify('模型偏好無法保存。');
-      }
+      await createSession(fork?.draft ?? '', fork?.attachments ?? []);
       setFork(null);
-      onNavigate(session.id);
-      await refresh();
     } catch (error) {
       notify(error instanceof Error ? error.message : '無法建立對話。');
     } finally {
@@ -410,21 +583,38 @@ export function ChatWorkspace({
     setSelected(upgradedSelection(current.models));
   };
   const submit = async () => {
-    if (!current || submitting || active || preparing) return;
+    if (submitting || creating || active || preparing || (!selected.length && !current)) return;
     if (!apiKey) {
       notify('請先設定 Runware 服務，再送出問題。');
       onSettings();
       return;
     }
     setSubmitting(true);
+    let createdSession: ChatSession | undefined;
     try {
-      await sendChat({ sessionId: current.id, key: apiKey, text, attachments, search });
-      if (route.current === current.id) {
+      const target = current ?? (createdSession = await createSession(text, attachments, false));
+      await sendChat({
+        sessionId: target.id,
+        key: apiKey,
+        text,
+        attachments,
+        search,
+        systemPrompt,
+      });
+      setExpanded(null);
+      if (createdSession) {
+        await refresh();
+        onNavigate(target.id);
+      }
+      if (route.current === target.id || !current) {
         setText('');
         setAttachments([]);
-        follow.current = true;
       }
     } catch (error) {
+      if (createdSession) {
+        await refresh();
+        onNavigate(createdSession.id);
+      }
       notify(error instanceof Error ? error.message : '無法送出問題。');
     } finally {
       setSubmitting(false);
@@ -441,6 +631,7 @@ export function ChatWorkspace({
         attachments: [],
         search,
         retryModel: model,
+        systemPrompt,
       });
     } catch (error) {
       notify(error instanceof Error ? error.message : '無法重新回答。');
@@ -449,16 +640,16 @@ export function ChatWorkspace({
     }
   };
   const addFiles = async (files: File[]) => {
-    if (!current || preparing) return;
+    if (preparing) return;
     if (attachments.length + files.length > 4) {
       notify('每次最多加入 4 個附件。');
       return;
     }
-    const target = current.id;
+    const target = current?.id ?? '';
     setPreparing(true);
     try {
       for (const file of files) {
-        const item = await prepareChatAttachment(file, target);
+        const item = await prepareChatAttachment(file, target || undefined);
         if (route.current === target) setAttachments((previous) => [...previous, item]);
       }
     } catch (error) {
@@ -474,23 +665,37 @@ export function ChatWorkspace({
           key={model}
           className={`chat-model-option ${selected.includes(model) ? 'selected' : ''}`}
           aria-pressed={selected.includes(model)}
-          disabled={!selected.includes(model) && selected.length >= 2}
-          onClick={() =>
+          disabled={!selected.includes(model) && selected.length >= maxSelectedChatModels}
+          onClick={() => {
+            if (!selected.includes(model) && search && !chatModels[model].search) {
+              notify(`${chatModels[model].name}不支援搜尋網路，請先關閉搜尋網路再選取。`);
+              return;
+            }
             setSelected((previous) =>
               previous.includes(model)
                 ? previous.filter((id) => id !== model)
                 : [...previous, model],
-            )
-          }
+            );
+          }}
         >
           <ModelMark model={model} />
           <span>
             <strong>{chatModels[model].name}</strong>
-            <small>{chatModels[model].description}</small>
             <small>
-              {chatModels[model].images ? '可看圖與圖像文件' : '文字問答'}
-              {chatModels[model].search ? ' · 可搜尋' : ' · 無網路搜尋'}
+              {model === 'gpt6Sol' ? (
+                <>
+                  深入分析 · <em className="chat-search-description">可查詢網路資料</em>
+                </>
+              ) : (
+                chatModels[model].description
+              )}
             </small>
+            {showMoney && chatTokenPrices[model] && (
+              <small className="chat-model-price">
+                輸入 ${chatTokenPrices[model].input} · 輸出 ${chatTokenPrices[model].output}
+                <span className="chat-price-denomination"> USD／百萬 tokens</span>
+              </small>
+            )}
           </span>
           <span className="chat-selection-check">
             {selected.includes(model) && <Check size={15} />}
@@ -501,7 +706,7 @@ export function ChatWorkspace({
   );
   const fullModel = current?.models.length === 1 ? current.models[0] : expanded;
   const lastTurn = current?.turns.at(-1);
-  const renderTurn = (turn: ChatTurn, model: ChatModelId, index: number) => {
+  const renderTurn = (turn: ChatTurn, model: ChatModelId, index: number, detailed: boolean) => {
     const versions = turn.answers[model] ?? [];
     const answer =
       versions.find((item) => item.id === viewVersions[`${turn.id}:${model}`]) ??
@@ -520,10 +725,11 @@ export function ChatWorkspace({
     return (
       <div className="chat-turn" key={turn.id}>
         <div className="chat-user-message">
-          <small>你</small>
+          {detailed && <small>你</small>}
           <p>{turn.text || '請查看附件'}</p>
           <AttachmentList items={turn.attachments} />
           <button
+            hidden={!detailed}
             className="chat-action"
             disabled={active || preparing}
             onClick={() => beginFork(model, turn, true)}
@@ -533,13 +739,12 @@ export function ChatWorkspace({
           </button>
         </div>
         <div className="chat-assistant-message">
-          <small>{chatModels[model].name}</small>
-          {answer?.text ? (
-            <ChatMarkdown text={answer.text} />
-          ) : (
-            <p className="chat-muted">
-              {answer ? statusText[answer.status] : '尚無回答'}
-              {answer?.status === 'streaming' && <LoaderCircle size={15} className="spin" />}
+          {detailed && <small>{chatModels[model].name}</small>}
+          {answer?.text && <ChatMarkdown text={answer.text} />}
+          {answer && ['queued', 'streaming'].includes(answer.status) && (
+            <p className="chat-progress" role="status">
+              <LoaderCircle size={16} className="spin" />
+              {statusText[answer.status]}
             </p>
           )}
           {answer && (
@@ -549,16 +754,14 @@ export function ChatWorkspace({
                   {answer.error}
                 </p>
               )}
-              <Sources items={answer.sources} />
-              {turn.search && answer.status === 'complete' && !answer.sources.length && (
-                <small className="chat-muted">本次允許搜尋，服務商未回傳可顯示的來源。</small>
-              )}
-              {showMoney && !['queued', 'streaming'].includes(answer.status) && (
-                <small className="chat-cost">
-                  本次回答花費 {answer.cost !== undefined ? money(answer.cost) : '服務商未提供'}
-                </small>
-              )}
-              <div className="chat-answer-actions">
+              {detailed && <Sources items={answer.sources} />}
+              {detailed &&
+                turn.search &&
+                answer.status === 'complete' &&
+                !answer.sources.length && (
+                  <small className="chat-muted">本次允許搜尋，服務商未回傳可顯示的來源。</small>
+                )}
+              <div className="chat-answer-actions" hidden={!detailed}>
                 <CopyButton text={answer.text} />
                 <button
                   className="chat-action"
@@ -597,6 +800,11 @@ export function ChatWorkspace({
                     </button>
                   </span>
                 )}
+                {showMoney && !['queued', 'streaming'].includes(answer.status) && (
+                  <small className="chat-cost chat-answer-cost">
+                    本次回答花費 {answer.cost !== undefined ? money(answer.cost) : '服務商未提供'}
+                  </small>
+                )}
               </div>
             </>
           )}
@@ -616,6 +824,7 @@ export function ChatWorkspace({
       <aside
         className={`chat-sidebar ${sidebar ? 'open' : ''}`}
         aria-label="歷史對話"
+        aria-hidden={!sidebar}
         inert={!sidebar}
       >
         <div className="chat-sidebar-heading">
@@ -704,9 +913,6 @@ export function ChatWorkspace({
               </div>
             ))}
         </div>
-        <p className="chat-storage-note">
-          對話只保存在這個瀏覽器。請至設定匯出備份，清除瀏覽器資料可能導致遺失。
-        </p>
       </aside>
       <div className="chat-main">
         <div className="chat-toolbar">
@@ -746,7 +952,7 @@ export function ChatWorkspace({
           </button>
         </div>
         {current?.models.some(
-          (model) => !selectableChatModelIds.includes(model as 'gpt6Sol' | 'gemini38Flash'),
+          (model) => !(selectableChatModelIds as readonly string[]).includes(model),
         ) && (
           <p className="chat-legacy-note">
             這是使用舊模型建立的對話。可從回答建立分支，或開新對話，選用目前的模型。
@@ -765,83 +971,58 @@ export function ChatWorkspace({
           </div>
         ) : !current ? (
           <div className="chat-intro">
-            <div className="chat-welcome-icon">
-              <MessageCircle size={32} />
+            <div className="chat-welcome">
+              <span className="chat-welcome-icon" aria-hidden="true">
+                <MessageCircle size={28} />
+              </span>
+              <div>
+                <h1>一個問題，多種想法</h1>
+                <p>選擇 1–3 個 AI，輸入問題就能開始聊。</p>
+              </div>
             </div>
-            <h1>{sessionId ? '找不到這份對話' : '一個問題，多種想法'}</h1>
-            <p>選擇 1–2 個 AI，一起聊聊。開始後模型就固定了，想換模型時可以開新對話。</p>
+            <div className="chat-picker-heading">
+              <strong>{sessionId ? '找不到這份對話' : '選擇 AI'}</strong>
+              <span>已選 {selected.length}／3 個</span>
+            </div>
             {selection}
-            <button
-              className="primary"
-              disabled={!selected.length || creating}
-              onClick={() => void create()}
-            >
-              {creating ? '建立中…' : `開始對話 · ${selected.length} 個 AI`}
-              <ArrowUp size={17} />
-            </button>
-            <p className="chat-privacy">
-              送出時，問題、對話歷史與附件會傳送到 Runware 及必要的上游服務。每個 AI 分別計費。
-            </p>
           </div>
         ) : (
-          <>
-            {fullModel ? (
-              <div className="chat-expanded">
-                <div className="chat-panel-heading">
-                  <ModelMark model={fullModel} />
-                  <strong>{chatModels[fullModel].name}</strong>
-                  <div className="chat-panel-tools">
-                    {current.models.length > 1 && (
-                      <>
-                        <select
-                          aria-label="切換放大的 AI"
-                          value={fullModel}
-                          onChange={(event) => {
-                            setExpanded(event.target.value as ChatModelId);
-                            follow.current = true;
-                          }}
-                        >
-                          {current.models.map((model) => (
-                            <option key={model} value={model}>
-                              {chatModels[model].family}
-                            </option>
-                          ))}
-                        </select>
-                        <button className="chat-action" onClick={() => setExpanded(null)}>
-                          <ArrowLeft size={15} />
-                          返回全部
-                        </button>
-                      </>
-                    )}
-                    {active && (
-                      <button
-                        className="chat-action"
-                        onClick={() => stopChat(current.id, fullModel)}
-                      >
-                        <Square size={13} />
-                        停止
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div
-                  className="chat-transcript"
-                  ref={feed}
-                  onScroll={() => {
-                    if (feed.current)
-                      follow.current =
-                        feed.current.scrollHeight -
-                          feed.current.scrollTop -
-                          feed.current.clientHeight <
-                        90;
-                  }}
+          <div
+            className={`chat-panels ${fullModel ? 'has-expanded' : ''}`}
+            style={{
+              gridTemplateRows: current.models
+                .map((model) => (fullModel && fullModel !== model ? 'minmax(0, 0fr)' : 'minmax(0, 1fr)'))
+                .join(' '),
+            }}
+          >
+            {current.models.map((model) => {
+              const detailed = fullModel === model;
+              const answer = lastTurn && selectedChatAnswer(lastTurn, model);
+              return (
+                <ChatPanel
+                  key={`${current.id}:${model}`}
+                  model={model}
+                  expanded={detailed}
+                  hidden={!!fullModel && !detailed}
+                  single={current.models.length === 1}
+                  revision={current}
+                  onToggle={() => setExpanded(detailed ? null : model)}
+                  onStop={
+                    answer && ['queued', 'streaming'].includes(answer.status)
+                      ? () => stopChat(current.id, model)
+                      : undefined
+                  }
+                  footer={
+                    showMoney && answer && !['queued', 'streaming'].includes(answer.status) ? (
+                      <small className="chat-preview-footer">
+                        本次 {answer.cost !== undefined ? money(answer.cost) : '費用未提供'}
+                      </small>
+                    ) : null
+                  }
                 >
                   {current.seed.length > 0 && (
                     <>
-                      <div className="chat-seed-label">
-                        <GitFork size={14} />
-                        從原對話接續的歷史
-                      </div>
+                      <div className="chat-seed-label">從原對話接續的歷史</div>
                       {current.seed.map((item, index) => (
                         <div
                           className={
@@ -849,186 +1030,140 @@ export function ChatWorkspace({
                           }
                           key={index}
                         >
-                          <small>
-                            {item.role === 'user'
-                              ? '你'
-                              : `原對話 · ${chatModelIds.includes(item.author as ChatModelId) ? chatModels[item.author as ChatModelId].name : item.author || 'AI'}`}
-                          </small>
+                          {detailed && <small>{item.role === 'user' ? '你' : '原對話 · AI'}</small>}
                           <ChatMarkdown text={item.content} />
                           <AttachmentList items={item.attachments ?? []} />
-                          <Sources items={item.sources ?? []} />
+                          {detailed && <Sources items={item.sources ?? []} />}
                         </div>
                       ))}
                       <div className="chat-seed-label">新的對話從這裡開始</div>
                     </>
                   )}
-                  {current.turns.map((turn, index) => renderTurn(turn, fullModel, index))}
-                  {!current.turns.length && !current.seed.length && (
-                    <div className="chat-empty">
-                      <MessageCircle size={30} />
-                      <p>有什麼想問的呢？</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div
-                className="chat-panels"
-                style={{ gridTemplateRows: `repeat(${current.models.length}, minmax(0, 1fr))` }}
-              >
-                {current.models.map((model) => {
-                  const answer = lastTurn && selectedChatAnswer(lastTurn, model);
-                  const preview =
-                    answer?.text ||
-                    current.seed.filter((item) => item.role === 'assistant').at(-1)?.content;
-                  return (
-                    <button
-                      key={model}
-                      className={`chat-preview ${chatModels[model].family.toLowerCase()}`}
-                      aria-label={`放大 ${chatModels[model].name}`}
-                      onClick={() => {
-                        setExpanded(model);
-                        follow.current = true;
-                      }}
-                    >
-                      <span className="chat-panel-heading">
-                        <ModelMark model={model} />
-                        <strong>{chatModels[model].name}</strong>
-                        <small>
-                          {answer
-                            ? statusText[answer.status]
-                            : current.seed.length
-                              ? '已載入歷史'
-                              : '準備好了'}
-                        </small>
-                        {answer && ['queued', 'streaming'].includes(answer.status) ? (
-                          <LoaderCircle size={16} className="spin" />
-                        ) : (
-                          <Maximize2 size={16} />
-                        )}
-                      </span>
-                      <span className={`chat-preview-text ${preview ? '' : 'empty'}`}>
-                        {preview
-                          ? preview.slice(-1800)
-                          : answer?.error || '在下方輸入問題，我會在這裡回答。'}
-                      </span>
-                      <span className="chat-preview-footer">
-                        點一下，放大閱讀
-                        {showMoney && answer?.cost !== undefined ? ` · ${money(answer.cost)}` : ''}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <form
-              className="chat-composer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
+                  {current.turns.map((turn, index) => renderTurn(turn, model, index, detailed))}
+                </ChatPanel>
+              );
+            })}
+          </div>
+        )}
+        {(current || (loaded && !storageFailed)) && (
+          <form
+            className="chat-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <AttachmentList
+              items={attachments}
+              remove={
+                preparing || submitting
+                  ? undefined
+                  : (id) => {
+                      const next = attachments.filter((item) => item.id !== id);
+                      setAttachments(next);
+                      persistDraft({ draftAttachments: next });
+                    }
+              }
+            />
+            <textarea
+              ref={textRef}
+              aria-label="輸入聊天訊息"
+              placeholder="輸入你的問題…"
+              value={text}
+              maxLength={24000}
+              rows={2}
+              disabled={submitting}
+              onChange={(event) => {
+                setText(event.target.value);
+                persistDraft({ draft: event.target.value });
               }}
-            >
-              <AttachmentList
-                items={attachments}
-                remove={
-                  preparing || submitting
-                    ? undefined
-                    : (id) => {
-                        const next = attachments.filter((item) => item.id !== id);
-                        setAttachments(next);
-                        persistDraft({ draftAttachments: next });
-                      }
+              onKeyDown={(event) => {
+                if (
+                  event.key === 'Enter' &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.nativeEvent.keyCode !== 229 &&
+                  window.matchMedia('(pointer: fine)').matches
+                ) {
+                  event.preventDefault();
+                  void submit();
                 }
-              />
-              <textarea
-                ref={textRef}
-                aria-label="輸入聊天訊息"
-                placeholder="輸入你的問題…"
-                value={text}
-                maxLength={24000}
-                rows={2}
-                disabled={submitting}
-                onChange={(event) => {
-                  setText(event.target.value);
-                  persistDraft({ draft: event.target.value });
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing &&
-                    event.nativeEvent.keyCode !== 229 &&
-                    window.matchMedia('(pointer: fine)').matches
-                  ) {
-                    event.preventDefault();
-                    void submit();
+              }}
+            />
+            <div className="chat-composer-tools">
+              <label className={`chat-action ${preparing || submitting ? 'disabled' : ''}`}>
+                <Paperclip size={18} />
+                {preparing ? '處理檔案…' : '上傳檔案'}
+                <input
+                  type="file"
+                  aria-label="加入聊天附件"
+                  multiple
+                  accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt"
+                  disabled={preparing || submitting}
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    void addFiles(files);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className={`chat-action chat-search-toggle ${search ? 'selected' : ''}`}
+                aria-pressed={search}
+                onClick={() => {
+                  if (!search) {
+                    const unsupported = (current?.models ?? selected).filter(
+                      (model) => !chatModels[model].search,
+                    );
+                    if (unsupported.length) {
+                      notify(
+                        `${unsupported.map((model) => chatModels[model].family).join('、')}不支援搜尋；請改選支援的模型。`,
+                      );
+                      return;
+                    }
                   }
+                  setSearch(!search);
+                  persistDraft({ search: !search });
                 }}
-              />
-              <div className="chat-composer-tools">
-                <label className={`chat-action ${preparing || submitting ? 'disabled' : ''}`}>
-                  <Paperclip size={18} />
-                  {preparing ? '處理附件…' : '附件'}
-                  <input
-                    type="file"
-                    aria-label="加入聊天附件"
-                    multiple
-                    accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt"
-                    disabled={preparing || submitting}
-                    onChange={(event) => {
-                      const files = [...(event.target.files ?? [])];
-                      event.target.value = '';
-                      void addFiles(files);
-                    }}
-                  />
-                </label>
+              >
+                <Globe size={17} />
+                搜尋網路
+              </button>
+              <span className="chat-composer-spacer" />
+              {active ? (
                 <button
                   type="button"
-                  className={`chat-action chat-search-toggle ${search ? 'selected' : ''}`}
-                  aria-pressed={search}
-                  onClick={() => {
-                    if (!search) {
-                      const unsupported = current.models.filter(
-                        (model) => !chatModels[model].search,
-                      );
-                      if (unsupported.length) {
-                        notify(
-                          `${unsupported.map((model) => chatModels[model].family).join('、')}不支援搜尋；請開新對話或從回答建立分支，改選支援的模型。`,
-                        );
-                        return;
-                      }
-                    }
-                    setSearch(!search);
-                    persistDraft({ search: !search });
-                  }}
+                  className="chat-stop"
+                  onClick={() => current && stopChat(current.id)}
                 >
-                  <Globe size={17} />
-                  搜尋
+                  <Square size={14} />
+                  全部停止
                 </button>
-                <span className="chat-composer-spacer" />
-                {active ? (
-                  <button type="button" className="chat-stop" onClick={() => stopChat(current.id)}>
-                    <Square size={14} />
-                    全部停止
-                  </button>
-                ) : (
-                  <button
-                    className="chat-send"
-                    type="submit"
-                    aria-label="送出給所有 AI"
-                    disabled={submitting || preparing || (!text.trim() && !attachments.length)}
-                  >
-                    <ArrowUp size={20} />
-                  </button>
-                )}
-              </div>
-              <small className="chat-composer-note">
-                {active
-                  ? '等全部回答完成或停止後即可送出下一題。'
-                  : `送出給 ${current.models.length} 個 AI · 回答可能有誤，重要資訊請查證。`}
-              </small>
-            </form>
-          </>
+              ) : (
+                <button
+                  className="chat-send"
+                  type="submit"
+                  aria-label="送出給所有 AI"
+                  disabled={
+                    submitting ||
+                    creating ||
+                    preparing ||
+                    (!current && !selected.length) ||
+                    (!text.trim() && !attachments.length)
+                  }
+                >
+                  傳送
+                  <ArrowUp size={18} />
+                </button>
+              )}
+            </div>
+            <small className="chat-composer-note">
+              {active
+                ? '等全部回答完成或停止後即可送出下一題。'
+                : `傳送給 ${current?.models.length ?? selected.length} 個 AI`}
+            </small>
+          </form>
         )}
       </div>
       {fork && (
@@ -1049,7 +1184,7 @@ export function ChatWorkspace({
             </button>
             <h2 id="chat-fork-title">從這裡開新對話</h2>
             <p>
-              帶入你與 {chatModels[fork.source.model].name} 的問答，重新選擇 1–2 個
+              帶入你與 {chatModels[fork.source.model].name} 的問答，重新選擇 1–3 個
               AI。原對話會保留。
             </p>
             {selection}

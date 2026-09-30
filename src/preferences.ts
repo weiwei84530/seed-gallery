@@ -15,6 +15,10 @@ export function initialPreferences(saved: string | null, search: string): Prefer
     if (typeof parsed?.showMoney === 'boolean')
       return {
         showMoney: parsed.showMoney,
+        chatSystemPrompt:
+          typeof parsed.chatSystemPrompt === 'string'
+            ? parsed.chatSystemPrompt.slice(0, 12000)
+            : '',
         balanceLimit:
           typeof parsed.balanceLimit === 'number' &&
           Number.isFinite(parsed.balanceLimit) &&
