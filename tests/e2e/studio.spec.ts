@@ -223,7 +223,7 @@ test('media storage failure preserves the task and recovers without new generati
   });
   await page.getByRole('button', { name: '開始生成圖片' }).click();
   await expect(page.getByRole('button', { name: /檢視 .* 圖片/ })).toHaveCount(1);
-  await page.getByRole('button', { name: '查詢原任務' }).click();
+  await page.getByRole('button', { name: '重試取得成果' }).click();
   await expect(page.getByRole('button', { name: /檢視 .* 圖片/ })).toHaveCount(2);
   expect(api.submitted).toHaveLength(2);
 });
