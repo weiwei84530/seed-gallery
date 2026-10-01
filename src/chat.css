@@ -521,15 +521,29 @@
   flex-wrap: wrap;
 }
 .chat-mode-select {
-  width: 66px;
-  min-width: 66px;
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 82px;
+  min-width: 82px;
   min-height: 36px;
-  padding: 4px 16px 4px 7px;
+  padding: 6px 28px 6px 14px;
   font-size: 14px;
-  border: 0;
-  background-color: transparent;
-  color: var(--muted);
-  border-radius: 8px;
+  font-weight: 500;
+  line-height: 1.5;
+  border: 1px solid #dfe5d9;
+  background-color: #fafbf7;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23718570' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  color: #4f675a;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.chat-mode-select:hover {
+  background-color: #f0f4eb;
+  border-color: #c5d2bf;
 }
 .chat-composer-tools input[type='file'] {
   display: none;
