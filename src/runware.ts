@@ -28,9 +28,11 @@ export class ApiError extends Error {
   }
 }
 export const isCredentialError = (code: string) => /key|auth|unauthorized|^401$/i.test(code);
+export const isCreditError = (code = '') => /balance|credit|fund/i.test(code);
 export function friendlyError(code = '') {
   if (isCredentialError(code)) return 'API Key 無效或已停用，請到設定更新。';
-  if (/balance|credit|fund/i.test(code)) return '服務帳戶目前無法生成，請至 Runware 檢查帳戶狀態。';
+  if (isCreditError(code))
+    return 'Runware 判定這次請求額度不足，請至 Runware 檢查帳戶狀態；若餘額足夠仍失敗，請聯絡 Runware。';
   if (/safety|moderation|nsfw|content/i.test(code))
     return '服務商無法處理這個內容，請調整描述或照片後再試。';
   if (/rate|limit|429/i.test(code)) return '目前請求較多，請稍後再試。';

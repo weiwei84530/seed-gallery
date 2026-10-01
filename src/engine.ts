@@ -4,6 +4,7 @@ import {
   ApiError,
   blobDataUri,
   friendlyError,
+  isCreditError,
   keyTag,
   request,
   resultBlob,
@@ -14,6 +15,14 @@ import { isVideo, type Draft, type Job } from './types';
 
 const running = new Set<string>();
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export function hasCreditFailure(job: Job) {
+  return (
+    job.failureReason === 'credits' ||
+    job.message === friendlyError('insufficientCredits') ||
+    job.message === '服務帳戶目前無法生成，請至 Runware 檢查帳戶狀態。'
+  );
+}
 
 export async function queueGeneration(workId: string, draft: Draft, key: string) {
   validateDraft(draft);
@@ -97,6 +106,7 @@ async function handleResponse(
       ...job,
       status: terminal ? 'failed' : 'unknown',
       message: friendlyError(error.code),
+      failureReason: isCreditError(error.code) ? 'credits' : undefined,
     });
     return true;
   }
@@ -151,7 +161,12 @@ export async function runJob(id: string, key: string, allowSubmit = false) {
             response = await request(key, payload);
           } catch (error) {
             if (error instanceof ApiError) {
-              await saveJob({ ...job, status: 'failed', message: error.message });
+              await saveJob({
+                ...job,
+                status: 'failed',
+                message: error.message,
+                failureReason: isCreditError(error.code) ? 'credits' : undefined,
+              });
               return;
             }
             throw error;

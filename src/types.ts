@@ -7,11 +7,17 @@ export const modelIds = [
   'seedream',
   'kling',
   'seedance',
+  'omni',
+  'wan',
+  'minimax',
+  'seedance25',
   'veo',
 ] as const;
 export type ModelId = (typeof modelIds)[number];
 export type WorkKind = 'image' | 'video';
 export type Ratio = 'portrait' | 'square' | 'landscape';
+export const videoResolutions = ['360p', '480p', '720p', '768p', '1080p', '1440p'] as const;
+export type VideoResolution = (typeof videoResolutions)[number];
 export interface Draft {
   kind?: WorkKind;
   prompt: string;
@@ -26,7 +32,9 @@ export interface Draft {
   seedreamThinking?: boolean;
   duration?: number;
   videoResolution?: '720p' | '1080p';
+  videoResolutions?: Partial<Record<ModelId, VideoResolution>>;
   audio?: boolean;
+  videoAudio?: Partial<Record<ModelId, boolean>>;
   klingNegativePrompt?: string;
 }
 export interface Work {
@@ -50,6 +58,7 @@ export interface Job {
   mediaId?: string;
   cost?: number;
   message?: string;
+  failureReason?: 'credits';
 }
 export interface Media {
   id: string;
@@ -84,7 +93,8 @@ export const newVideoDraft = (): Draft => ({
   kind: 'video',
   models: ['kling'],
   duration: 4,
-  videoResolution: '720p',
-  audio: false,
+  videoResolutions: {},
+  audio: true,
+  videoAudio: {},
   klingNegativePrompt: '',
 });

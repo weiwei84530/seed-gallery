@@ -1,4 +1,11 @@
-import { dimensions, models } from './models';
+import {
+  dimensions,
+  models,
+  supportsSquareVideo,
+  videoAudioFor,
+  videoResolutionFor,
+  videoResolutionOptions,
+} from './models';
 import { isVideo, type Draft, type ModelId } from './types';
 
 export interface PricingRate {
@@ -76,18 +83,23 @@ export function calculateModelEstimate(model: ModelId, draft: Draft, rates: Pric
   }
 
   if (isVideo(draft)) {
-    const withAudio = draft.audio ?? false;
-    const resolution = draft.videoResolution ?? '720p';
+    if (model === 'omni') return null;
+    const withAudio = videoAudioFor(model, draft);
+    const resolution = videoResolutionFor(model, draft);
     const label =
-      model === 'seedance'
+      model === 'seedance' || model === 'wan'
         ? new RegExp(`^${resolution}$`, 'i')
-        : model === 'kling'
-          ? withAudio
-            ? /· audio$/i
-            : /no audio/i
-          : withAudio
-            ? /with audio/i
-            : /^720p \/ 1080p$/i;
+        : model === 'minimax'
+          ? new RegExp(`^${resolution === '1440p' ? '2K' : resolution}$`, 'i')
+          : model === 'seedance25'
+            ? new RegExp(`^Text/Image to Video · ${resolution}$`, 'i')
+            : model === 'kling'
+              ? withAudio
+                ? /· audio$/i
+                : /no audio/i
+              : withAudio
+                ? /with audio/i
+                : /^720p \/ 1080p$/i;
     const perSecond = rate(rates, 'durationSecond', label);
     if (perSecond === undefined) return null;
     return perSecond * (draft.duration ?? 4);
@@ -105,14 +117,15 @@ export async function estimateModelCost(model: ModelId, draft: Draft): Promise<M
   if (model === 'gpt' || model === 'gptFlare')
     return { amount: null, reason: '依實際用量計費，無法預估' };
   if (model === 'gptSunburst') return { amount: null, reason: '依 token 實際用量計費，無法預估' };
+  if (model === 'omni') return { amount: null, reason: '依 token 實際用量計費，無法預估' };
   if (model === 'banana' && draft.googleSearch)
     return { amount: null, reason: '含網路搜尋，用量未定，暫無法預估' };
   if (model === 'flux' && draft.refs.length)
     return { amount: null, reason: '參考照片用量未定，暫無法預估' };
   if (
     isVideo(draft) &&
-    ((model === 'veo' && draft.ratio === 'square' && !draft.refs.length) ||
-      (model !== 'veo' && draft.videoResolution === '1080p'))
+    ((!supportsSquareVideo(model) && draft.ratio === 'square' && !draft.refs.length) ||
+      !videoResolutionOptions(model).includes(videoResolutionFor(model, draft)))
   )
     return { amount: null, reason: '不支援目前的比例或解析度' };
   const rates = await fetchRates(model);

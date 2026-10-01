@@ -8,6 +8,8 @@ import openaiLogo from './assets/providers/openai.png';
 import bflLogo from './assets/providers/bfl.png';
 import bytedanceLogo from './assets/providers/bytedance.png';
 import klingLogo from './assets/providers/kling.png';
+import minimaxLogo from './assets/providers/minimax.svg';
+import wanLogo from './assets/providers/wan.png';
 
 const providerLogos = {
   banana: googleLogo,
@@ -18,13 +20,21 @@ const providerLogos = {
   seedream: bytedanceLogo,
   kling: klingLogo,
   seedance: bytedanceLogo,
+  seedance25: bytedanceLogo,
+  omni: googleLogo,
+  wan: wanLogo,
+  minimax: minimaxLogo,
   veo: googleLogo,
 };
 
 export function ProviderLogo({ model }: { model: ModelId }) {
   return (
     <span className={`model-icon ${model}`}>
-      <img src={providerLogos[model]} alt="" />
+      {providerLogos[model] ? (
+        <img src={providerLogos[model]} alt="" />
+      ) : (
+        <span aria-hidden="true">{models[model].letter}</span>
+      )}
     </span>
   );
 }

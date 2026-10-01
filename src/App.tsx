@@ -47,8 +47,19 @@ import { WelcomeIllustration } from './WelcomeIllustration';
 import { usePwa } from './pwa';
 import { ModelPicker, ProviderLogo } from './ModelPicker';
 import { InspirationPanel } from './InspirationPanel';
-import { queueGeneration, resumeJobs, runJob } from './engine';
-import { currentDraft, dimensions, models, modelsFor, promptLimit, supports1080 } from './models';
+import { hasCreditFailure, queueGeneration, resumeJobs, runJob } from './engine';
+import {
+  currentDraft,
+  dimensions,
+  fixedVideoAudio,
+  models,
+  modelsFor,
+  promptLimit,
+  supportsSquareVideo,
+  videoAudioFor,
+  videoResolutionFor,
+  videoResolutionOptions,
+} from './models';
 import { rememberDraft, rememberedDraft, clearDraftDefaults } from './draft-defaults';
 import { download, importPhoto } from './media';
 import {
@@ -460,8 +471,8 @@ function Workspace({
   const mediaName = video ? '影片' : '圖片';
   const availableModels = modelsFor(video ? 'video' : 'image');
   const maxRefs = video ? 1 : 4;
-  const advancedModels = draft.models.filter((model) =>
-    ['banana', 'gpt', 'gptFlare', 'gptSunburst', 'seedream', 'kling'].includes(model),
+  const advancedModels = draft.models.filter(
+    (model) => video || ['banana', 'gpt', 'gptFlare', 'gptSunburst', 'seedream'].includes(model),
   );
   useEffect(() => {
     let live = true;
@@ -481,13 +492,14 @@ function Workspace({
     selectedEstimates.reduce((sum, estimate) => sum + (estimate?.amount ?? 0), 0) * draft.count;
   const update = (patch: Partial<Draft>) => {
     const next = { ...latestDraft.current, ...patch };
-    if (isVideo(next) && next.videoResolution === '1080p' && !supports1080(next)) {
-      next.videoResolution = '720p';
-      notify('已切換為所選模型共同支援的 720p。');
-    }
-    if (isVideo(next) && next.ratio === 'square' && next.models.includes('veo')) {
+    if (
+      isVideo(next) &&
+      next.ratio === 'square' &&
+      !next.refs.length &&
+      next.models.some((model) => !supportsSquareVideo(model))
+    ) {
       next.ratio = 'portrait';
-      notify('Veo 不提供方形選項，已切換為手機直向；有照片時依照片調整。');
+      notify('所選模型不提供方形選項，已切換為手機直向。');
     }
     try {
       rememberDraft(next);
@@ -683,7 +695,7 @@ function Workspace({
             </h2>
             {video && draft.refs.length > 0 ? (
               <p className="hint">
-                影片比例依起始照片調整。Veo 會補邊適配直向或橫向，保留照片內容；實際尺寸由模型決定。
+                影片比例依起始照片調整，實際尺寸由模型決定。Gemini Omni 僅提供直向與橫向影片。
               </p>
             ) : (
               <fieldset>
@@ -694,7 +706,11 @@ function Workspace({
                       key={ratio}
                       type="button"
                       aria-pressed={draft.ratio === ratio}
-                      disabled={video && ratio === 'square' && draft.models.includes('veo')}
+                      disabled={
+                        video &&
+                        ratio === 'square' &&
+                        draft.models.some((model) => !supportsSquareVideo(model))
+                      }
                       onClick={() => update({ ratio })}
                     >
                       <span className={`ratio-shape ${ratio}`} />
@@ -705,34 +721,21 @@ function Workspace({
                 </div>
               </fieldset>
             )}
-            <div className="setting-row">
-              <label htmlFor="resolution">
-                清晰度<small>較高解析度需要更多時間</small>
-              </label>
-              <select
-                id="resolution"
-                value={video ? (draft.videoResolution ?? '720p') : draft.resolution}
-                onChange={(e) =>
-                  video
-                    ? update({ videoResolution: e.target.value as Draft['videoResolution'] })
-                    : update({ resolution: e.target.value as Draft['resolution'] })
-                }
-              >
-                {video ? (
-                  <>
-                    <option value="720p">標準 · 720p</option>
-                    <option value="1080p" disabled={!supports1080(draft)}>
-                      細緻 · 1080p（限 Veo）
-                    </option>
-                  </>
-                ) : (
-                  <>
-                    <option value="1K">標準 · 1K</option>
-                    <option value="2K">細緻 · 2K</option>
-                  </>
-                )}
-              </select>
-            </div>
+            {!video && (
+              <div className="setting-row">
+                <label htmlFor="resolution">
+                  清晰度<small>較高解析度需要更多時間</small>
+                </label>
+                <select
+                  id="resolution"
+                  value={draft.resolution}
+                  onChange={(e) => update({ resolution: e.target.value as Draft['resolution'] })}
+                >
+                  <option value="1K">標準 · 1K</option>
+                  <option value="2K">細緻 · 2K</option>
+                </select>
+              </div>
+            )}
             {video && (
               <>
                 <label className="setting-row">
@@ -748,16 +751,9 @@ function Workspace({
                     ))}
                   </select>
                 </label>
-                <label className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={draft.audio ?? false}
-                    onChange={(e) => update({ audio: e.target.checked })}
-                  />
-                  生成聲音
-                </label>
                 <p className="hint">
-                  聲音由 AI 配合畫面生成，可在描述中指定音效或對白；不保證逐字準確。
+                  預設生成聲音；解析度與關閉聲音可在進階設定中分別調整。聲音由 AI
+                  配合畫面生成，不保證對白逐字準確。
                 </p>
               </>
             )}
@@ -777,6 +773,48 @@ function Workspace({
                         : `輸出 ${dimensions(model, draft).width} × ${dimensions(model, draft).height} px`}{' '}
                       · {video ? 'MP4' : 'PNG'}
                     </small>
+                    {video && (
+                      <>
+                        <label className="setting-row">
+                          解析度
+                          <select
+                            aria-label={`${models[model].name} 解析度`}
+                            value={videoResolutionFor(model, draft)}
+                            onChange={(e) =>
+                              update({
+                                videoResolutions: {
+                                  ...draft.videoResolutions,
+                                  [model]: e.target.value,
+                                },
+                              })
+                            }
+                          >
+                            {videoResolutionOptions(model).map((resolution) => (
+                              <option key={resolution} value={resolution}>
+                                {resolution === '1440p' ? '1440p · 2K' : resolution}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {fixedVideoAudio(model) ? (
+                          <p className="hint">固定有聲，模型不提供關閉聲音。</p>
+                        ) : (
+                          <label className="check-row">
+                            <input
+                              type="checkbox"
+                              aria-label={`${models[model].name} 關閉聲音`}
+                              checked={!videoAudioFor(model, draft)}
+                              onChange={(e) =>
+                                update({
+                                  videoAudio: { ...draft.videoAudio, [model]: !e.target.checked },
+                                })
+                              }
+                            />
+                            關閉聲音
+                          </label>
+                        )}
+                      </>
+                    )}
                     {model === 'banana' ? (
                       <label className="check-row">
                         <input
@@ -989,7 +1027,11 @@ function Workspace({
                                         : '等待確認結果'}
                                   </strong>
                                   <span>{job.message}</span>
-                                  {job.status === 'failed' ? (
+                                  {job.status === 'failed' && hasCreditFailure(job) ? (
+                                    <button className="secondary" onClick={() => setTab('edit')}>
+                                      回到編輯畫面
+                                    </button>
+                                  ) : job.status === 'failed' ? (
                                     <button
                                       className="secondary"
                                       disabled={submitting || active}
@@ -2172,7 +2214,7 @@ export default function App() {
             <small>
               {date(imageJob.createdAt)} ·{' '}
               {isVideo(imageJob.draft)
-                ? `${imageJob.draft.duration ?? 4} 秒 · ${imageJob.draft.videoResolution ?? '720p'} · ${imageJob.draft.audio ? '生成聲音' : '無聲'}（請求設定）`
+                ? `${imageJob.draft.duration ?? 4} 秒 · ${videoResolutionFor(imageJob.model, imageJob.draft)} · ${videoAudioFor(imageJob.model, imageJob.draft) ? '生成聲音' : '無聲'}（請求設定）`
                 : actualSize
                   ? `${actualSize.width} × ${actualSize.height} px`
                   : '正在讀取圖片尺寸…'}

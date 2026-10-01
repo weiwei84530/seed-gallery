@@ -27,12 +27,12 @@ Key 驗證成功後會保存到此瀏覽器。設定中可以更換 Key、移除
 
 ## 模型
 
-| 類別 | 模型                                                                | 輸入               |
-| ---- | ------------------------------------------------------------------- | ------------------ |
-| 圖片 | Nano Banana 2、GPT Image 2.5 Sunburst、FLUX.2 Pro、Seedream 5.0 Pro | 文字、參考照片修改 |
-| 影片 | Kling 3.0 Standard、Seedance 2.0 Fast、Veo 3.1 Fast                 | 文字、單張起始照片 |
+| 類別 | 模型                                                                                            | 輸入               |
+| ---- | ----------------------------------------------------------------------------------------------- | ------------------ |
+| 圖片 | Nano Banana 2、GPT Image 2.5 Sunburst、FLUX.2 Pro、Seedream 5.0 Pro                             | 文字、參考照片修改 |
+| 影片 | Gemini Omni Flash 1.1、Wan 3.0、Seedance 2.0 Fast、MiniMax H3、Kling 3.0 Standard、Seedance 2.5 | 文字、單張起始照片 |
 
-首次使用時，圖片預選 Nano Banana 2 與 GPT Image 2.5 Sunburst；影片預選 Kling 3.0 Standard，每個模型一支、4 秒、720p，聲音關閉。可以多選模型比較結果，各模型分別計費。聊天的新對話可同時選擇兩個 AI，各自回答相同問題。舊作品保留原本模型名稱；開啟舊圖片草稿時，GPT Image 2 與 Flare 的編輯選項改用 Sunburst。
+首次使用時，圖片預選 Nano Banana 2 與 GPT Image 2.5 Sunburst；影片預選 Kling 3.0 Standard，每個模型一支、4 秒、720p，預設有聲。可以多選模型比較結果，各模型分別計費。聊天的新對話可同時選擇兩個 AI，各自回答相同問題。舊作品保留原本模型名稱；開啟舊圖片草稿時，GPT Image 2 與 Flare 的編輯選項改用 Sunburst。Veo 不再提供於模型選單，舊影片與備份仍可瀏覽；僅選 Veo 的舊草稿改用 Kling。
 
 ## 資料與隱私
 
@@ -88,8 +88,8 @@ npm run test:e2e
 - Key 更換後，舊任務需要原 Key 查詢。備份還原中的未完成任務不會自動送出或查詢。
 - 圖片參考照片最多 4 張；影片使用單張起始照片。支援 JPG、PNG、WebP，每張 15 MB 內。HEIC 請先轉檔。
 - 圖片共用解析度為 1K／2K；直向及橫向比例約為 9:16／16:9。進階設定列出各模型請求的實際尺寸，不裁切生成圖片。每個模型每次可生成 1–4 張。
-- 影片提供 4／6／8 秒、720p；僅選 Veo 時可使用 1080p。每個模型每次可生成 1–2 支 MP4。Veo 文字生影片支援直向與橫向，另外兩個模型也支援方形。
-- 有起始照片時，影片比例由照片與模型支援能力決定，不強制套用文字生影片的比例；Veo 使用補邊模式。聲音由模型生成，開啟時可能增加費用，實際效果依模型而異。
+- 影片提供 4／6／8 秒，每個模型每次可生成 1–2 支 MP4。進階設定可分別選擇模型解析度：Omni 360p／720p、Wan 與 Seedance 2.0 Fast 480p／720p、MiniMax 768p／1440p、Kling 720p、Seedance 2.5 480p。預設最接近 720p（MiniMax 768p、Seedance 2.5 480p）。Omni 文生影片支援直向與橫向，其餘模型也支援方形。
+- 有起始照片時，影片比例由照片與模型支援能力決定，不強制套用文字生影片的比例。所有影片預設有聲；進階設定可按模型勾選「關閉聲音」，Omni 與 MiniMax 固定有聲。聲音由模型生成，可能影響費用，實際效果依模型而異。
 - 影片保存上限為單檔 100 MB。瀏覽器無法內播時顯示下載提示，可下載後用裝置播放器開啟。
 - 模型選單依 Runware 公開價目顯示目前設定的單張／單支預估費用，底部加總所選模型與數量。GPT Image 2.5 Sunburst 依 token 用量計費；無法可靠估算的設定會說明原因，不以範例價格代替。完成後顯示服務商回傳的 USD 實際費用。隱藏餘額與費用時，同時隱藏所有金額與估價說明。餘額讀取受帳戶權限限制，失敗會明示無法讀取。
 - ZIP 匯出限制為媒體與清單合計 240 MB；還原上限為壓縮檔 250 MB、解壓資料 500 MB、單一檔案 100 MB。支援舊版圖片備份。備份仍可能受手機記憶體限制，超過上限時請先下載重要作品，再分批整理。
@@ -97,7 +97,7 @@ npm run test:e2e
 
 Runware 參數依 [Nano Banana 2](https://runware.ai/docs/models/google-nano-banana-2)、[GPT Image 2](https://runware.ai/docs/models/openai-gpt-image-2)、[非同步任務](https://runware.ai/docs/platform/task-polling) 與 [帳戶查詢](https://runware.ai/docs/platform/account-management) 官方文件實作。驗證與餘額解析另依真實 REST 回應核對：成功驗證可回傳空的 `data`，餘額支援 USD 數值與包含幣別的物件格式。最近核對日期：2026-09-15。
 
-新增模型依 [FLUX.2 Pro](https://runware.ai/docs/models/bfl-flux-2-pro)、[Seedream 5.0 Pro](https://runware.ai/docs/models/bytedance-seedream-5-0-pro)、[Kling 3.0 Standard](https://runware.ai/docs/models/klingai-video-3-0-standard)、[Seedance 2.0 Fast](https://runware.ai/docs/models/bytedance-seedance-2-0-fast) 與 [Veo 3.1 Fast](https://runware.ai/docs/models/google-veo-3-1-fast) 官方文件實作，並以少量真實生成核對。
+新增影片模型依 [Gemini Omni Flash 1.1](https://runware.ai/docs/models/google-gemini-omni-flash-1-1)、[Wan 3.0](https://runware.ai/docs/models/alibaba-wan3-0)、[MiniMax H3](https://runware.ai/docs/models/minimax-h3)、[Seedance 2.5](https://runware.ai/docs/models/bytedance-seedance-2-5)、[Kling 3.0 Standard](https://runware.ai/docs/models/klingai-video-3-0-standard) 與 [Seedance 2.0 Fast](https://runware.ai/docs/models/bytedance-seedance-2-0-fast) 官方文件實作。新增四個模型的真實生成尚未驗證。Omni 依 token 計費，介面會明示無法可靠預估。
 
 GPT Image 2.5 Sunburst 依 [OpenAI 官方模型文件](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst) 與 [Runware 模型文件](https://runware.ai/docs/models/openai-gpt-image-2-5-sunburst) 串接，使用 `openai:gpt-image@2.5-sunburst`、`settings.quality` 與 `settings.background`，已驗證模擬 API 請求及流程，尚未執行 Sunburst 真實付費生成。
 
@@ -118,5 +118,7 @@ GitHub Actions 在 `main` 通過型別檢查、單元測試、瀏覽器流程測
 真實 iPhone／Android、長時間背景切換、服務商任務保存期限及其他帳戶的餘額權限尚未驗證。模擬 API 測試與桌面瀏覽器模擬不代表這些項目已通過。
 
 同日透過 Chromium 手機模擬完成 FLUX.2 Pro、Seedream 5.0 Pro 各一次文字生圖與參考照片修改，以及三個影片模型各一次 4 秒、720p 無聲文字生影片與有聲照片生影片。已確認六支影片可播放、下載及匯出 ZIP，並抽驗重新開啟、離線播放與實際備份還原後播放；其他秒數、1080p 與所有進階選項未逐一付費實測。
+
+2026-10-01 另確認 Seedance 2.0 Fast 的 4 秒有聲生成：480p 文字與 PNG Data URI 首幀生成均成功；720p 首幀請求由網頁送出，並確認查詢原任務、保存 MP4 到 IndexedDB 與 Chromium 播放，不需改成公開圖片 URL。此驗證不包含真實手機或其他秒數。
 
 聊天已驗證單元測試與 Chromium 手機尺寸流程，包括分支、部分失敗、停止、附件解析、備份及跨分頁保護。先前版本曾核對六款模型的文字串流、掃描 PDF／DOCX 表格與內嵌圖片，以及 GPT／Gemini／Claude 的跨回合圖片。新版另從 Chromium 實測 GPT-6 Sol 同時讀圖與搜尋；Runware 回傳已完成的搜尋紀錄及 NASA 網頁引用。Gemini 3.8 Flash 已實測可讀圖，但尚未找到經 Runware 搜尋的可用接法。PWA 的安裝、離線與明確更新流程已在 Chromium 手機模擬驗證；真實手機鍵盤、長時間背景切換及本輪 WebKit 尚未驗證。

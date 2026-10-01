@@ -35,6 +35,7 @@ const jobSchema = z.object({
   ]),
   mediaId: id.optional(),
   cost: z.number().nonnegative().finite().optional(),
+  failureReason: z.literal('credits').optional(),
 });
 const attachmentSchema = z.object({
   id,

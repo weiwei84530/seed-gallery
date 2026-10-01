@@ -15,7 +15,9 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test('mobile header keeps both captions and install card follows recent works', async ({ page }) => {
+test('mobile header keeps both captions and install card follows recent works', async ({
+  page,
+}) => {
   await mockRunware(page);
   await setup(page);
   await newWork(page);
@@ -27,9 +29,9 @@ test('mobile header keeps both captions and install card follows recent works', 
   await expect(page.locator('.recent')).toBeVisible();
   await expect(page.locator('.pwa-install-card img')).toBeVisible();
   expect(
-    await page.locator('.recent, .pwa-install-card').evaluateAll((sections) =>
-      sections.map((section) => section.className),
-    ),
+    await page
+      .locator('.recent, .pwa-install-card')
+      .evaluateAll((sections) => sections.map((section) => section.className)),
   ).toEqual(['recent', 'pwa-install-card']);
 
   for (const width of [320, 390, 430]) {
@@ -241,7 +243,12 @@ type Task = {
 };
 async function mockRunware(
   page: Page,
-  options: { failGpt?: boolean; failVeo?: boolean; interrupt?: boolean; badBalance?: boolean } = {},
+  options: {
+    failGpt?: boolean;
+    failSeedance?: boolean;
+    interrupt?: boolean;
+    badBalance?: boolean;
+  } = {},
 ) {
   const submitted: Task[] = [];
   const polled: Task[] = [];
@@ -282,9 +289,9 @@ async function mockRunware(
       );
     if (task.taskType === 'imageInference' || task.taskType === 'videoInference') {
       submitted.push(task);
-      if (options.failVeo && task.model === 'google:3@3') {
+      if (options.failSeedance && task.model === 'bytedance:seedance@2.0-fast') {
         failed.add(task.taskUUID);
-        options.failVeo = false;
+        options.failSeedance = false;
       }
       if (options.failGpt && task.model?.startsWith('openai')) {
         failed.add(task.taskUUID);
@@ -594,8 +601,9 @@ test('category defaults remember parameters while new works keep prompts and ref
   await page.getByLabel('種子畫廊首頁').click();
   await page.getByRole('button', { name: /製作影片/ }).click();
   await expect(page.getByLabel('移除 Kling 3.0 Standard')).toBeVisible();
-  await expect(page.getByLabel('生成聲音', { exact: true })).not.toBeChecked();
-  await page.getByLabel('生成聲音', { exact: true }).check();
+  await page.locator('.advanced summary').click();
+  await expect(page.getByLabel('Kling 3.0 Standard 關閉聲音', { exact: true })).not.toBeChecked();
+  await page.getByLabel('Kling 3.0 Standard 關閉聲音', { exact: true }).check();
   await page.getByLabel('影片長度').selectOption('8');
   await page.reload();
   await page.getByLabel('種子畫廊首頁').click();
@@ -607,7 +615,8 @@ test('category defaults remember parameters while new works keep prompts and ref
   await page.getByLabel('種子畫廊首頁').click();
   await page.getByRole('button', { name: /製作影片/ }).click();
   await expect(page.getByLabel('影片長度')).toHaveValue('8');
-  await expect(page.getByLabel('生成聲音', { exact: true })).toBeChecked();
+  await page.locator('.advanced summary').click();
+  await expect(page.getByLabel('Kling 3.0 Standard 關閉聲音', { exact: true })).toBeChecked();
   await expect(page.getByLabel('描述你的想法')).toHaveValue('');
 });
 
@@ -696,12 +705,12 @@ test('video first-frame generation plays and downloads, hides costs, and survive
 test('video partial failures retry only the failed model and reload only polls the original task', async ({
   page,
 }) => {
-  const api = await mockRunware(page, { failVeo: true, interrupt: true });
+  const api = await mockRunware(page, { failSeedance: true, interrupt: true });
   page.on('dialog', (d) => void d.accept());
   await setup(page);
   await page.getByRole('button', { name: /製作影片/ }).click();
   await page.getByRole('button', { name: '新增模型' }).click();
-  await page.getByRole('button', { name: '新增 Veo 3.1 Fast', exact: true }).click();
+  await page.getByRole('button', { name: '新增 Seedance 2.0 Fast', exact: true }).click();
   await page.getByLabel('描述你的想法').fill('一朵花在微風中搖動');
   await page.getByRole('button', { name: '開始生成影片' }).click();
   await expect(page.getByRole('button', { name: '查詢原任務' })).toBeVisible();
@@ -715,7 +724,7 @@ test('video partial failures retry only the failed model and reload only polls t
   await page.getByRole('button', { name: '重新生成這支' }).click();
   await expect(page.getByRole('button', { name: /檢視 .* 影片/ })).toHaveCount(2);
   expect(api.submitted).toHaveLength(3);
-  expect(api.submitted[2].model).toBe('google:3@3');
+  expect(api.submitted[2].model).toBe('bytedance:seedance@2.0-fast');
 });
 
 test('first-use validation, saved key, replacement, and hidden money preference', async ({
@@ -1594,6 +1603,136 @@ test('library pagination preview uses isolated sample artwork and storage sectio
   expect(api.submitted).toHaveLength(0);
 });
 
+for (const responseStatus of [400, 200]) {
+  test(`Seedance credit rejection (${responseStatus}) explains the failure and never resubmits during reload`, async ({
+    page,
+  }, testInfo) => {
+    await mockRunware(page);
+    const rejected: Task[] = [];
+    await page.route('https://api.runware.ai/v1', async (route) => {
+      const [task] = route.request().postDataJSON() as Task[];
+      if (task.taskType !== 'videoInference') return route.fallback();
+      rejected.push(task);
+      return route.fulfill({
+        status: responseStatus,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          errors: [{ taskUUID: task.taskUUID, code: 'insufficientCredits' }],
+          data: [],
+        }),
+      });
+    });
+    await setup(page);
+    await page.getByRole('button', { name: /製作影片/ }).click();
+    await page.getByRole('button', { name: '替換 Kling 3.0 Standard', exact: true }).click();
+    await page.getByRole('button', { name: '改用 Seedance 2.0 Fast', exact: true }).click();
+    await page.getByLabel('描述你的想法').fill('一朵花在微風中搖動');
+    await page.getByRole('button', { name: '開始生成影片', exact: true }).click();
+    await expect(page.locator('.job-placeholder.failed')).toContainText(
+      'Runware 判定這次請求額度不足',
+    );
+    await expect(page.locator('.job-placeholder.failed')).toContainText(
+      '若餘額足夠仍失敗，請聯絡 Runware',
+    );
+    await expect(page.getByRole('button', { name: '查詢原任務', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '重新生成這支', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '回到編輯畫面', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('seedance-credit-error.png') });
+    expect(rejected).toHaveLength(1);
+    await page.reload();
+    await page.getByRole('tab', { name: /本次作品/ }).click();
+    await expect(page.locator('.job-placeholder.failed')).toContainText(
+      'Runware 判定這次請求額度不足',
+    );
+    expect(rejected).toHaveLength(1);
+    await page.getByRole('button', { name: '回到編輯畫面', exact: true }).click();
+    await expect(page.getByLabel('描述你的想法')).toHaveValue('一朵花在微風中搖動');
+    await expect(page.getByRole('button', { name: '開始生成影片', exact: true })).toBeVisible();
+    expect(rejected).toHaveLength(1);
+  });
+}
+
+test('six video models keep independent resolutions and audio choices across reload and submission', async ({
+  page,
+}, testInfo) => {
+  const api = await mockRunware(page);
+  await setup(page, '?costs=hidden');
+  await page.getByRole('button', { name: /製作影片/ }).click();
+  for (const name of [
+    'Gemini Omni Flash 1.1',
+    'Wan 3.0',
+    'Seedance 2.0 Fast',
+    'MiniMax H3',
+    'Seedance 2.5',
+  ]) {
+    await page.getByRole('button', { name: '新增模型', exact: true }).click();
+    await page.getByRole('button', { name: `新增 ${name}`, exact: true }).click();
+  }
+  await expect(page.getByText('已選 6 個', { exact: true })).toBeVisible();
+  await expect(page.getByLabel(/清晰度/)).toHaveCount(0);
+  await page.locator('.advanced summary').click();
+  for (const [name, resolution] of [
+    ['Gemini Omni Flash 1.1', '720p'],
+    ['Wan 3.0', '720p'],
+    ['Seedance 2.0 Fast', '720p'],
+    ['MiniMax H3', '768p'],
+    ['Kling 3.0 Standard', '720p'],
+    ['Seedance 2.5', '480p'],
+  ]) {
+    await expect(page.getByLabel(`${name} 解析度`, { exact: true })).toHaveValue(resolution);
+  }
+  await expect(page.getByText('固定有聲，模型不提供關閉聲音。', { exact: true })).toHaveCount(2);
+  await expect(page.getByRole('checkbox', { name: /關閉聲音/ })).toHaveCount(4);
+  for (const checkbox of await page.getByRole('checkbox', { name: /關閉聲音/ }).all())
+    await expect(checkbox).not.toBeChecked();
+  await page.getByLabel('Gemini Omni Flash 1.1 解析度', { exact: true }).selectOption('360p');
+  await page.getByLabel('Seedance 2.0 Fast 解析度', { exact: true }).selectOption('480p');
+  await page.getByLabel('MiniMax H3 解析度', { exact: true }).selectOption('1440p');
+  await page.getByLabel('Kling 3.0 Standard 關閉聲音', { exact: true }).check();
+  for (const width of [320, 390, 1200]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    await page.locator('.advanced').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`video-advanced-${width}.png`) });
+  }
+  await page.reload();
+  await page.locator('.advanced summary').click();
+  await expect(page.getByLabel('Gemini Omni Flash 1.1 解析度', { exact: true })).toHaveValue(
+    '360p',
+  );
+  await expect(page.getByLabel('MiniMax H3 解析度', { exact: true })).toHaveValue('1440p');
+  await expect(page.getByLabel('Kling 3.0 Standard 關閉聲音', { exact: true })).toBeChecked();
+  await page.getByLabel('描述你的想法').fill('一朵黃色小花在微風中搖動');
+  await page.getByRole('button', { name: '開始生成影片', exact: true }).click();
+  await expect(page.getByRole('button', { name: /檢視 .* 影片/ })).toHaveCount(6);
+  expect(api.submitted).toHaveLength(6);
+  const task = (air: string) => api.submitted.find((item) => item.model === air);
+  expect(task('google:gemini@omni-flash-1.1')).toMatchObject({ width: 360, height: 640 });
+  expect(task('minimax:h3@0')).toMatchObject({ width: 1440, height: 2560 });
+  expect(task('bytedance:seedance@2.0-fast')).toMatchObject({
+    width: 496,
+    height: 864,
+    settings: { audio: true },
+  });
+  expect(task('bytedance:seedance@2.5')).toMatchObject({
+    width: 480,
+    height: 854,
+    settings: { audio: true },
+  });
+  expect(task('alibaba:wan@3.0')).toMatchObject({
+    width: 720,
+    height: 1280,
+    settings: { audio: true },
+  });
+  expect(task('klingai:kling-video@3-standard')).toMatchObject({
+    providerSettings: { klingai: { sound: false } },
+  });
+  expect(api.submitted.some((item) => item.resolution !== undefined)).toBe(false);
+  await expect(page.locator('.results')).not.toContainText('US$');
+});
+
 test('replacing video models preserves compatibility checks', async ({ page }, testInfo) => {
   const api = await mockRunware(page);
   await setup(page);
@@ -1602,16 +1741,22 @@ test('replacing video models preserves compatibility checks', async ({ page }, t
   const group = page.locator('.model-select[data-open="true"]');
   await group.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('video-replacement.png') });
-  await page.getByRole('button', { name: '改用 Veo 3.1 Fast', exact: true }).click();
-  await page.getByLabel(/清晰度/).selectOption('1080p');
-  await page.getByRole('button', { name: '替換 Veo 3.1 Fast', exact: true }).click();
+  await expect(page.getByRole('button', { name: '改用 Veo 3.1 Fast', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '改用 MiniMax H3', exact: true }).click();
+  await page.locator('.advanced summary').click();
+  await page.getByLabel('MiniMax H3 解析度', { exact: true }).selectOption('1440p');
+  await page.getByRole('button', { name: '替換 MiniMax H3', exact: true }).click();
   await page.getByRole('button', { name: '改用 Seedance 2.0 Fast', exact: true }).click();
-  await expect(page.getByLabel(/清晰度/)).toHaveValue('720p');
-  await expect(page.getByText('已切換為所選模型共同支援的 720p。')).toBeVisible();
+  await expect(page.getByLabel('Seedance 2.0 Fast 解析度', { exact: true })).toHaveValue('720p');
+  await page.getByLabel('Seedance 2.0 Fast 解析度', { exact: true }).selectOption('480p');
   await page.reload();
   await expect(
     page.getByRole('button', { name: '替換 Seedance 2.0 Fast', exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel(/清晰度/)).toHaveValue('720p');
+  await page.locator('.advanced summary').click();
+  await expect(page.getByLabel('Seedance 2.0 Fast 解析度', { exact: true })).toHaveValue('480p');
+  await page.getByRole('button', { name: '新增模型', exact: true }).click();
+  await page.getByRole('button', { name: '新增 MiniMax H3', exact: true }).click();
+  await expect(page.getByLabel('MiniMax H3 解析度', { exact: true })).toHaveValue('1440p');
   expect(api.submitted).toHaveLength(0);
 });

@@ -1,4 +1,4 @@
-import { isVideo, type Draft, type ModelId, type WorkKind } from './types';
+import { isVideo, type Draft, type ModelId, type VideoResolution, type WorkKind } from './types';
 
 export const models = {
   banana: {
@@ -65,6 +65,38 @@ export const models = {
     note: '快速創作・豐富動態',
     letter: 'S',
   },
+  omni: {
+    kind: 'video',
+    name: 'Gemini Omni Flash 1.1',
+    maker: 'GOOGLE',
+    air: 'google:gemini@omni-flash-1.1',
+    note: '快速預覽・原生有聲',
+    letter: 'G',
+  },
+  wan: {
+    kind: 'video',
+    name: 'Wan 3.0',
+    maker: 'ALIBABA',
+    air: 'alibaba:wan@3.0',
+    note: '日常創作・聲畫同步',
+    letter: 'W',
+  },
+  minimax: {
+    kind: 'video',
+    name: 'MiniMax H3',
+    maker: 'MINIMAX',
+    air: 'minimax:h3@0',
+    note: '細膩動態・原生有聲',
+    letter: 'M',
+  },
+  seedance25: {
+    kind: 'video',
+    name: 'Seedance 2.5',
+    maker: 'BYTEDANCE',
+    air: 'bytedance:seedance@2.5',
+    note: '豐富動態・480p 創作',
+    letter: 'S',
+  },
   veo: {
     kind: 'video',
     name: 'Veo 3.1 Fast',
@@ -77,21 +109,73 @@ export const models = {
 
 export const modelsFor = (kind: WorkKind) =>
   (Object.keys(models) as ModelId[]).filter(
-    (id) => !['gpt', 'gptFlare'].includes(id) && models[id].kind === kind,
+    (id) => !['gpt', 'gptFlare', 'veo'].includes(id) && models[id].kind === kind,
   );
+
+// Veo remains readable for historical jobs and backups, but is no longer offered.
+export function videoResolutionOptions(model: ModelId): VideoResolution[] {
+  switch (model) {
+    case 'omni':
+      return ['360p', '720p'];
+    case 'wan':
+    case 'seedance':
+      return ['480p', '720p'];
+    case 'minimax':
+      return ['768p', '1440p'];
+    case 'seedance25':
+      return ['480p'];
+    case 'veo':
+      return ['720p', '1080p'];
+    case 'kling':
+      return ['720p'];
+    default:
+      return [];
+  }
+}
+
+export function videoResolutionFor(model: ModelId, draft: Draft): VideoResolution {
+  const saved = draft.videoResolutions?.[model] ?? draft.videoResolution;
+  if (saved) return saved;
+  return model === 'minimax' ? '768p' : model === 'seedance25' ? '480p' : '720p';
+}
+
+export const fixedVideoAudio = (model: ModelId) => model === 'omni' || model === 'minimax';
+export const videoAudioFor = (model: ModelId, draft: Draft) =>
+  fixedVideoAudio(model) || (draft.videoAudio?.[model] ?? draft.audio ?? true);
+export const supportsSquareVideo = (model: ModelId) => model !== 'omni' && model !== 'veo';
 
 // Upgrade editable selections while preserving historical jobs and their model identity.
 export function currentDraft(draft: Draft): Draft {
-  return {
+  const next: Draft = {
     ...draft,
     models: [
       ...new Set(
-        draft.models.map((id) =>
-          id === 'gpt' || id === 'gptFlare' ? ('gptSunburst' as const) : id,
-        ),
+        draft.models
+          .filter((id) => id !== 'veo')
+          .map((id) => (id === 'gpt' || id === 'gptFlare' ? ('gptSunburst' as const) : id)),
       ),
     ],
   };
+  if (isVideo(next)) {
+    if (!next.models.length && draft.models.includes('veo')) next.models = ['kling'];
+    next.videoResolutions = { ...draft.videoResolutions };
+    for (const model of next.models) {
+      const saved = draft.videoResolutions?.[model] ?? draft.videoResolution;
+      next.videoResolutions[model] =
+        saved && videoResolutionOptions(model).includes(saved)
+          ? saved
+          : videoResolutionFor(model, {
+              ...next,
+              videoResolution: undefined,
+              videoResolutions: {},
+            });
+    }
+    delete next.videoResolution;
+    // The new per-model controls start with audio enabled; historical jobs keep their settings.
+    next.videoAudio = { ...draft.videoAudio };
+    delete next.audio;
+  }
+  return next;
 }
 export const promptLimit = (draft: Draft) =>
   Math.min(
@@ -102,20 +186,49 @@ export const promptLimit = (draft: Draft) =>
           ? 3000
           : m === 'seedance'
             ? 10000
-            : 32000,
+            : m === 'minimax'
+              ? 7000
+              : m === 'wan'
+                ? 20000
+                : 32000,
     ),
     32000,
   );
-export const supports1080 = (draft: Draft) =>
-  draft.models.length > 0 && draft.models.every((m) => m === 'veo');
-
 export function dimensions(model: ModelId, draft: Draft) {
   if (models[model].kind === 'video') {
-    const high = draft.videoResolution === '1080p';
-    if (draft.ratio === 'square') return { width: 960, height: 960 };
+    const resolution = videoResolutionFor(model, draft);
+    const landscape =
+      resolution === '360p'
+        ? [640, 360]
+        : resolution === '480p'
+          ? model === 'wan'
+            ? [832, 480]
+            : model === 'seedance25'
+              ? [854, 480]
+              : [864, 496]
+          : resolution === '768p'
+            ? [1344, 768]
+            : resolution === '1440p'
+              ? [2560, 1440]
+              : resolution === '1080p'
+                ? [1920, 1080]
+                : [1280, 720];
+    if (draft.ratio === 'square') {
+      const size =
+        resolution === '480p'
+          ? model === 'wan'
+            ? 624
+            : 640
+          : resolution === '768p'
+            ? 768
+            : resolution === '1440p'
+              ? 1440
+              : 960;
+      return { width: size, height: size };
+    }
     return draft.ratio === 'portrait'
-      ? { width: high ? 1080 : 720, height: high ? 1920 : 1280 }
-      : { width: high ? 1920 : 1280, height: high ? 1080 : 720 };
+      ? { width: landscape[1], height: landscape[0] }
+      : { width: landscape[0], height: landscape[1] };
   }
   if (model === 'seedream' && draft.ratio !== 'square') {
     const size = draft.resolution === '2K' ? [1584, 2816] : [800, 1424];
@@ -158,10 +271,14 @@ export function validateDraft(draft: Draft) {
     if (draft.refs.length > 1) throw new Error('影片每次使用一張起始照片。');
     if (![4, 6, 8].includes(draft.duration ?? 4)) throw new Error('請選擇 4、6 或 8 秒。');
     if (draft.count > 2) throw new Error('每個模型每次最多生成 2 支影片。');
-    if (draft.ratio === 'square' && draft.models.includes('veo') && !draft.refs.length)
-      throw new Error('Veo 支援直向與橫向影片，請更換比例。');
-    if (draft.videoResolution === '1080p' && !supports1080(draft))
-      throw new Error('目前選取的模型組合支援 720p，請調整解析度。');
+    for (const model of draft.models) {
+      if (draft.ratio === 'square' && !supportsSquareVideo(model) && !draft.refs.length)
+        throw new Error(`${models[model].name} 支援直向與橫向影片，請更換比例。`);
+      if (!videoResolutionOptions(model).includes(videoResolutionFor(model, draft)))
+        throw new Error(
+          `${models[model].name} 支援 ${videoResolutionOptions(model).join('、')}，請調整解析度。`,
+        );
+    }
     const negativeLength = draft.klingNegativePrompt?.trim().length ?? 0;
     if (draft.models.includes('kling') && negativeLength === 1)
       throw new Error('Kling 排除內容請至少填寫 2 個字，或保持空白。');
@@ -213,26 +330,28 @@ export function buildRequest(
       ...(references.length
         ? {
             inputs: { frameImages: [{ image: references[0], frame: 'first' }] },
-            ...(model !== 'kling' ? { resolution: draft.videoResolution ?? '720p' } : {}),
+            ...(model !== 'kling' ? { resolution: videoResolutionFor(model, draft) } : {}),
           }
         : dimensions(model, draft)),
       ...(model === 'kling'
         ? {
-            providerSettings: { klingai: { sound: draft.audio ?? false } },
+            providerSettings: { klingai: { sound: videoAudioFor(model, draft) } },
             ...(draft.klingNegativePrompt?.trim()
               ? { negativePrompt: draft.klingNegativePrompt.trim() }
               : {}),
           }
-        : model === 'seedance'
-          ? { settings: { audio: draft.audio ?? false } }
-          : {
-              providerSettings: {
-                google: {
-                  generateAudio: draft.audio ?? false,
-                  ...(references.length ? { resizeMode: 'pad' } : {}),
+        : ['seedance', 'seedance25', 'wan'].includes(model)
+          ? { settings: { audio: videoAudioFor(model, draft) } }
+          : model === 'veo'
+            ? {
+                providerSettings: {
+                  google: {
+                    generateAudio: videoAudioFor(model, draft),
+                    ...(references.length ? { resizeMode: 'pad' } : {}),
+                  },
                 },
-              },
-            }),
+              }
+            : {}),
     };
   return {
     taskType: 'imageInference',
