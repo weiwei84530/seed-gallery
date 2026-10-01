@@ -73,6 +73,8 @@ export interface Preferences {
   showMoney: boolean;
   balanceLimit: number;
   chatSystemPrompt?: string;
+  chatModeControls?: boolean;
+  chatMode?: import('./chat-types').ChatMode;
 }
 export interface Balance {
   amount: number;

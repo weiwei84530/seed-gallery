@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { initialPreferences } from '../src/preferences';
+import { initialPreferences, effectiveChatMode, setChatModeControls } from '../src/preferences';
 import { calculateModelEstimate, estimateModelCost } from '../src/pricing';
 import { buildRequest, currentDraft, dimensions, models, modelsFor } from '../src/models';
 import { visibleWorks, workPreview } from '../src/work-list';
@@ -21,6 +21,21 @@ afterEach(async () => {
   await clearWorks();
 });
 describe('preferences', () => {
+  it('resets shared thinking mode on disable, re-enable and reload', () => {
+    const deep = {
+      ...initialPreferences(null, ''),
+      chatModeControls: true,
+      chatMode: 'deep' as const,
+    };
+    expect(effectiveChatMode(deep)).toBe('deep');
+    const off = setChatModeControls(deep, false);
+    expect(off.chatMode).toBe('balanced');
+    expect(effectiveChatMode({ ...off, chatMode: 'deep' })).toBe('balanced');
+    const reload = initialPreferences(JSON.stringify({ ...off, chatMode: 'deep' }), '');
+    expect(reload.chatMode).toBe('balanced');
+    expect(setChatModeControls(reload, true).chatMode).toBe('balanced');
+    expect(initialPreferences(JSON.stringify(deep), '').chatMode).toBe('deep');
+  });
   it('only uses the hidden URL default before a preference exists', () => {
     expect(initialPreferences(null, '').showMoney).toBe(true);
     expect(initialPreferences(null, '?costs=hidden').showMoney).toBe(false);

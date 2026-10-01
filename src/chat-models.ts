@@ -4,7 +4,7 @@ export const selectableChatModelIds = [
   'gpt6Sol',
   'gemini38Flash',
   'opus55',
-  'deepseek',
+  'deepseekPro',
   'minimaxM3',
 ] as const;
 export const maxSelectedChatModels = 3;
@@ -22,6 +22,11 @@ export const chatTokenPrices: Partial<
     source: 'https://runware.ai/models/minimax-m3',
   },
   deepseek: { input: '0.15', output: '0.60', source: 'https://runware.ai/pricing#models' },
+  deepseekPro: {
+    input: '0.961',
+    output: '1.922',
+    source: 'https://runware.ai/models/deepseek-v4-pro',
+  },
   opus48: {
     input: '5',
     output: '25',
@@ -145,6 +150,15 @@ export const chatModels: Record<
     images: true,
     search: false,
   },
+  deepseekPro: {
+    id: 'deepseekPro',
+    name: 'DeepSeek V4 Pro',
+    family: 'DeepSeek',
+    air: 'deepseek:v4@pro',
+    description: '深入推理與文字分析',
+    images: false,
+    search: false,
+  },
   glm: {
     id: 'glm',
     name: 'GLM-5.3 Flash',
@@ -178,6 +192,8 @@ export function validateChatRequest(
   )
     return '請選擇一至三個模型。';
   if (!history.length || history.at(-1)?.role !== 'user') return '請先輸入訊息。';
+  if (models.includes('deepseekPro') && history.some((message) => message.attachments?.length))
+    return 'DeepSeek Pro 不支援上傳檔案；請移除附件，或改用其他 AI。含附件的對話請選其他 AI 繼續。';
   if (history.some((message) => !['user', 'assistant'].includes(message.role)))
     return '對話紀錄格式不正確。';
   if (

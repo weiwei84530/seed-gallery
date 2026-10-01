@@ -17,6 +17,7 @@ import {
   compatibilityRequest,
   providerSources,
   responsesRequest,
+  anthropicRequest,
   streamChat,
 } from '../src/chat-api';
 import { validateChatRequest } from '../src/chat-models';
@@ -57,6 +58,97 @@ const attachment = (imageIds: string[], text?: string) => ({
   imageIds,
 });
 
+it('maps thinking modes without an application output cap', async () => {
+  const messages = [user('Hello')];
+  for (const [mode, effort] of [
+    ['fast', 'low'],
+    ['balanced', 'medium'],
+    ['deep', 'high'],
+  ] as const) {
+    const gpt = await buildChatRequest('gpt6Sol', messages, false, 'id', '', mode);
+    expect(responsesRequest(gpt, messages).reasoning.effort).toBe(effort);
+    expect(responsesRequest(gpt, messages)).not.toHaveProperty('max_output_tokens');
+    const gemini = await buildChatRequest('gemini38Flash', messages, false, 'id', '', mode);
+    expect(compatibilityRequest(gemini, messages)).toMatchObject({ reasoning_effort: effort });
+    expect(compatibilityRequest(gemini, messages)).not.toHaveProperty('max_completion_tokens');
+    const claude = await buildChatRequest('opus55', messages, false, 'id', '', mode);
+    expect(anthropicRequest(claude, messages).output_config.effort).toBe(effort);
+    expect(anthropicRequest(claude, messages).max_tokens).toBe(128000);
+    const pro = await buildChatRequest('deepseekPro', messages, false, 'id', '', mode);
+    expect(compatibilityRequest(pro, messages)).toMatchObject({
+      model: 'deepseek:v4@pro',
+      thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
+      reasoning_effort: 'high',
+    });
+    const minimax = await buildChatRequest('minimaxM3', messages, false, 'id', '', mode);
+    expect(minimax.settings).not.toHaveProperty('thinkingLevel');
+    expect(minimax.settings).not.toHaveProperty('maxTokens');
+  }
+});
+
+it('blocks all Pro attachments while keeping historical Flash available', async () => {
+  for (const file of [attachment(['x']), attachment([], 'Text file')]) {
+    const messages = [
+      user('Look', [file]),
+      { role: 'assistant' as const, content: 'Earlier reply' },
+      user('Follow up'),
+    ];
+    expect(validateChatRequest(['deepseekPro'], messages, false)).toMatch(/不支援上傳檔案/);
+    await expect(buildChatRequest('deepseekPro', messages, false, 'id')).rejects.toThrow(
+      /不支援上傳檔案/,
+    );
+    expect(validateChatRequest(['deepseek'], messages, false)).toBeNull();
+  }
+});
+
+it('preserves Claude image positions and streams visible text and cost only', async () => {
+  vi.mocked(getMedia).mockResolvedValue({
+    id: 'x',
+    name: 'note.png',
+    blob: new Blob(['x'], { type: 'image/png' }),
+  });
+  const messages = [
+    user('Look', [attachment(['x'])]),
+    { role: 'assistant' as const, content: 'First' },
+    user('Continue'),
+  ];
+  const task = await buildChatRequest('opus55', messages, false, 'id', 'Be concise', 'deep');
+  const request = anthropicRequest(task, messages);
+  expect(request.system).toContain('Be concise');
+  expect(request.messages[0].content).toMatchObject([
+    { type: 'text' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png' } },
+  ]);
+  expect(request.messages[1].content).toBe('First');
+  const events = [
+    { type: 'message_start', message: { usage: { cost: 0.001 } } },
+    { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'Private thought' } },
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Answer' } },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { cost: 0.002 } },
+    { type: 'message_stop' },
+  ];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      body: stream(events.map((event) => `data: ${JSON.stringify(event)}\n\n`)),
+    })),
+  );
+  expect(
+    await streamChat({
+      key: 'fake',
+      model: 'opus55',
+      messages,
+      search: false,
+      chatMode: 'deep',
+      taskUUID: 'id',
+      signal: new AbortController().signal,
+      onUpdate: vi.fn(),
+    }),
+  ).toEqual({ text: 'Answer', sources: [], cost: 0.002 });
+  expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.runware.ai/v1/messages');
+});
+
 function stream(chunks: string[]) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -65,6 +157,35 @@ function stream(chunks: string[]) {
     },
   });
 }
+
+it.each(['max_tokens', undefined])(
+  'rejects incomplete Claude Messages streams (%s)',
+  async (reason) => {
+    const events = [
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Partial answer' } },
+      ...(reason ? [{ type: 'message_delta', delta: { stop_reason: reason } }] : []),
+      { type: 'message_stop' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        body: stream(events.map((event) => `data: ${JSON.stringify(event)}\n\n`)),
+      })),
+    );
+    await expect(
+      streamChat({
+        key: 'fake',
+        model: 'opus55',
+        messages: [user('Hello')],
+        search: false,
+        taskUUID: 'id',
+        signal: new AbortController().signal,
+        onUpdate: vi.fn(),
+      }),
+    ).rejects.toThrow(/未.*完成/);
+  },
+);
 
 describe('chat request validation', () => {
   it('rejects unsupported search and excessive attachments without dropping history', () => {
@@ -395,7 +516,7 @@ describe('Runware SSE stream', () => {
     expect(task.model).toBe('openai:gpt@5.4');
     expect(task.inputs.images).toHaveLength(2);
     expect(task.settings.systemPrompt).toContain('Images 2-2 belong to message 3');
-    expect(task.settings.thinkingLevel).toBe('low');
+    expect(task.settings.thinkingLevel).toBe('medium');
     expect(task.tools).toEqual([{ type: 'search' }]);
   });
 

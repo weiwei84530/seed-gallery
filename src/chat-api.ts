@@ -1,6 +1,6 @@
 import { getMedia } from './db';
 import { ApiError, blobDataUri } from './runware';
-import type { ChatHistoryMessage, ChatModelId, ChatSource } from './chat-types';
+import type { ChatHistoryMessage, ChatMode, ChatModelId, ChatSource } from './chat-types';
 import { chatModels, validateChatRequest } from './chat-models';
 export { validateChatRequest } from './chat-models';
 
@@ -16,6 +16,7 @@ interface ChatStreamOptions {
   messages: ChatHistoryMessage[];
   search: boolean;
   systemPrompt?: string;
+  chatMode?: ChatMode;
   taskUUID: string;
   signal: AbortSignal;
   onUpdate: (update: ChatUpdate) => void;
@@ -39,6 +40,7 @@ export async function buildChatRequest(
   search: boolean,
   taskUUID: string,
   customSystemPrompt = '',
+  chatMode: ChatMode = 'balanced',
 ) {
   const error = validateChatRequest([model], messages, search);
   if (error) throw new Error(error);
@@ -86,9 +88,11 @@ export async function buildChatRequest(
     includeCost: true,
     numberResults: 1,
     settings: {
-      maxTokens: 4096,
-      ...(['gpt54', 'geminiFlash', 'gpt6Sol', 'gemini38Flash'].includes(model)
-        ? { thinkingLevel: 'low' }
+      ...(model === 'deepseekPro'
+        ? { thinkingLevel: chatMode === 'fast' ? ('low' as const) : ('high' as const) }
+        : {}),
+      ...(['gpt54', 'geminiFlash', 'gpt6Sol', 'gemini38Flash', 'opus55'].includes(model)
+        ? { thinkingLevel: ({ fast: 'low', balanced: 'medium', deep: 'high' } as const)[chatMode] }
         : {}),
       ...(systemPrompt ? { systemPrompt } : {}),
     },
@@ -107,8 +111,14 @@ export function compatibilityRequest(
     model: task.model,
     stream: true,
     stream_options: { include_usage: true },
-    max_completion_tokens: task.settings.maxTokens,
-    ...(task.settings.thinkingLevel ? { reasoning_effort: task.settings.thinkingLevel } : {}),
+    ...(task.model === chatModels.deepseekPro.air
+      ? {
+          thinking: { type: task.settings.thinkingLevel === 'low' ? 'disabled' : 'enabled' },
+          reasoning_effort: 'high',
+        }
+      : task.settings.thinkingLevel
+        ? { reasoning_effort: task.settings.thinkingLevel }
+        : {}),
     ...(task.tools ? { tools: task.tools, tool_choice: 'auto' } : {}),
     messages: [
       ...(task.settings.systemPrompt
@@ -142,8 +152,7 @@ export function responsesRequest(
     model: task.model,
     stream: true,
     store: false,
-    max_output_tokens: task.settings.maxTokens,
-    reasoning: { effort: 'low' },
+    reasoning: { effort: task.settings.thinkingLevel ?? 'medium' },
     input: compatible.messages.map((message) => ({
       role: message.role,
       content:
@@ -156,6 +165,40 @@ export function responsesRequest(
             ),
     })),
     ...(task.tools ? { tools: [{ type: 'web_search' }], tool_choice: 'required' } : {}),
+  };
+}
+
+export function anthropicRequest(
+  task: Awaited<ReturnType<typeof buildChatRequest>>,
+  messages: ChatHistoryMessage[],
+) {
+  const compatible = compatibilityRequest(task, messages);
+  return {
+    model: task.model,
+    stream: true,
+    // Messages requires a limit. Use the model maximum, not an application cap.
+    max_tokens: 128000,
+    output_config: { effort: task.settings.thinkingLevel ?? 'medium' },
+    ...(task.settings.systemPrompt ? { system: task.settings.systemPrompt } : {}),
+    messages: compatible.messages
+      .filter((message) => message.role !== 'system')
+      .map((message) => ({
+        role: message.role,
+        content:
+          typeof message.content === 'string'
+            ? message.content
+            : message.content.map((part) => {
+                if (!('image_url' in part)) return { type: 'text', text: part.text };
+                const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/.exec(
+                  part.image_url.url,
+                );
+                if (!match) throw new Error('圖片附件格式不受支援。');
+                return {
+                  type: 'image',
+                  source: { type: 'base64', media_type: match[1], data: match[2] },
+                };
+              }),
+      })),
   };
 }
 
@@ -223,30 +266,36 @@ export async function streamChat({
   signal,
   onUpdate,
   systemPrompt,
+  chatMode = 'balanced',
 }: ChatStreamOptions): Promise<ChatUpdate> {
-  const task = await buildChatRequest(model, messages, search, taskUUID, systemPrompt);
+  const task = await buildChatRequest(model, messages, search, taskUUID, systemPrompt, chatMode);
   const responses = model === 'gpt6Sol';
+  const anthropic = model === 'opus55';
   // Prefer per-message images. GPT web search requires the native endpoint;
   // its image positions are explicitly mapped in the system prompt above.
   const compatible =
     !(model === 'gpt54' && search) &&
-    (['deepseek', 'glm', 'kimi', 'gemini38Flash', 'opus55'].includes(model) ||
+    (['deepseek', 'deepseekPro', 'glm', 'kimi', 'gemini38Flash'].includes(model) ||
       Boolean(task.inputs?.images.length && !['minimaxM3', 'opus48'].includes(model)));
   const response = await fetch(
-    responses
-      ? 'https://api.runware.ai/v1/responses'
-      : compatible
-        ? 'https://api.runware.ai/v1/chat/completions'
-        : 'https://api.runware.ai/v1',
+    anthropic
+      ? 'https://api.runware.ai/v1/messages'
+      : responses
+        ? 'https://api.runware.ai/v1/responses'
+        : compatible
+          ? 'https://api.runware.ai/v1/chat/completions'
+          : 'https://api.runware.ai/v1',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(
-        responses
-          ? responsesRequest(task, messages)
-          : compatible
-            ? compatibilityRequest(task, messages)
-            : [task],
+        anthropic
+          ? anthropicRequest(task, messages)
+          : responses
+            ? responsesRequest(task, messages)
+            : compatible
+              ? compatibilityRequest(task, messages)
+              : [task],
       ),
       signal,
       credentials: 'omit',
@@ -282,7 +331,7 @@ export async function streamChat({
       .join('\n');
     if (!data) return;
     if (data === '[DONE]') {
-      if (!responses) done = true;
+      if (!responses && !anthropic) done = true;
       return;
     }
     let event: Record<string, unknown>;
@@ -296,6 +345,29 @@ export async function streamChat({
       throw new ApiError(typeof code === 'string' ? code : 'streamingError');
     }
     if (event.error) throw new Error('Runware 無法完成回答，請檢查模型或稍後重試。');
+    if (anthropic) {
+      if (event.type === 'message_start') {
+        const message = event.message as { model?: string; usage?: { cost?: number } } | undefined;
+        const billed = message?.usage?.cost;
+        if (typeof billed === 'number' && Number.isFinite(billed) && billed >= 0) cost = billed;
+      }
+      const delta = event.delta as
+        { type?: string; text?: string; stop_reason?: string } | undefined;
+      if (event.type === 'content_block_delta' && delta?.type === 'text_delta')
+        text += delta.text ?? '';
+      if (event.type === 'content_block_start') {
+        const block = event.content_block as { type?: string; text?: string } | undefined;
+        if (block?.type === 'text') text += block.text ?? '';
+      }
+      if (event.type === 'message_delta') {
+        finishReason = delta?.stop_reason === 'end_turn' ? 'stop' : delta?.stop_reason;
+        const billed = (event.usage as { cost?: number } | undefined)?.cost;
+        if (typeof billed === 'number' && Number.isFinite(billed) && billed >= 0) cost = billed;
+      }
+      if (event.type === 'message_stop') done = true;
+      onUpdate({ text, sources: [...sources.values()], cost });
+      return;
+    }
     if (responses) {
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string')
         text += event.delta;
@@ -407,6 +479,7 @@ export async function streamChat({
     reader.releaseLock();
   }
   if (!done) throw new Error('Runware 串流提前中斷；請先確認是否已產生費用。');
+  if (anthropic && !finishReason) throw new Error('Runware 未確認回答完成。');
   if (finishReason && finishReason !== 'stop') throw new Error('模型未完整完成回應。');
   if (responses && search && !searchCompleted)
     throw new Error('尚未確認完成網路搜尋，這份回答尚未完成網路查證。');

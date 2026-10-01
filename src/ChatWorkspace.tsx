@@ -40,13 +40,14 @@ import {
   type ChatAttachment,
   type ChatHistoryMessage,
   type ChatModelId,
+  type ChatMode,
   type ChatSession,
   type ChatTurn,
 } from './chat-types';
 import { getMedia } from './db';
 import { download } from './media';
 import openaiLogo from './assets/providers/openai.svg';
-import googleLogo from './assets/providers/google.svg';
+import googleLogo from './assets/providers/gemini.svg';
 import minimaxLogo from './assets/providers/minimax.svg';
 import deepseekLogo from './assets/providers/deepseek.svg';
 import claudeLogo from './assets/providers/claude.svg';
@@ -59,6 +60,7 @@ const chatProviderLogos: Partial<Record<ChatModelId, string>> = {
   gemini38Flash: googleLogo,
   minimaxM3: minimaxLogo,
   deepseek: deepseekLogo,
+  deepseekPro: deepseekLogo,
   opus48: claudeLogo,
   opus55: claudeLogo,
 };
@@ -92,6 +94,7 @@ function upgradedSelection(models: readonly ChatModelId[]): ChatModelId[] {
       if (model === 'gpt' || model === 'gpt54') return 'gpt6Sol';
       if (model === 'gemini' || model === 'geminiFlash') return 'gemini38Flash';
       if (model === 'opus48') return 'opus55';
+      if (model === 'deepseek') return 'deepseekPro';
       return model;
     })
     .filter((model): model is (typeof selectableChatModelIds)[number] =>
@@ -341,6 +344,7 @@ interface Props {
   apiKey: string;
   showMoney: boolean;
   systemPrompt: string;
+  chatMode: ChatMode;
   sessionId: string;
   onNavigate: (id: string) => void;
   onSettings: () => void;
@@ -350,6 +354,7 @@ export function ChatWorkspace({
   apiKey,
   showMoney,
   systemPrompt,
+  chatMode,
   sessionId,
   onNavigate,
   onSettings,
@@ -382,6 +387,7 @@ export function ChatWorkspace({
   const dialog = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const current = sessions.find((item) => item.id === sessionId);
+  const uploadsDisabled = (current?.models ?? selected).includes('deepseekPro');
   const active = current ? isChatSessionActive(current) : false;
   useEffect(() => setSidebar(false), [sessionId]);
   useLayoutEffect(() => {
@@ -600,6 +606,7 @@ export function ChatWorkspace({
         attachments,
         search,
         systemPrompt,
+        chatMode,
       });
       setExpanded(null);
       if (createdSession) {
@@ -632,6 +639,7 @@ export function ChatWorkspace({
         search,
         retryModel: model,
         systemPrompt,
+        chatMode,
       });
     } catch (error) {
       notify(error instanceof Error ? error.message : '無法重新回答。');
@@ -640,6 +648,10 @@ export function ChatWorkspace({
     }
   };
   const addFiles = async (files: File[]) => {
+    if (uploadsDisabled) {
+      notify('DeepSeek Pro 不支援上傳檔案，請先取消選取它。');
+      return;
+    }
     if (preparing) return;
     if (attachments.length + files.length > 4) {
       notify('每次最多加入 4 個附件。');
@@ -667,6 +679,16 @@ export function ChatWorkspace({
           aria-pressed={selected.includes(model)}
           disabled={!selected.includes(model) && selected.length >= maxSelectedChatModels}
           onClick={() => {
+            if (
+              !selected.includes(model) &&
+              model === 'deepseekPro' &&
+              (attachments.length ||
+                fork?.attachments.length ||
+                fork?.seed.some((message) => message.attachments?.length))
+            ) {
+              notify('DeepSeek Pro 不支援上傳檔案；請先移除附件，含附件的對話請選其他 AI。');
+              return;
+            }
             if (!selected.includes(model) && search && !chatModels[model].search) {
               notify(`${chatModels[model].name}不支援搜尋網路，請先關閉搜尋網路再選取。`);
               return;
@@ -685,6 +707,10 @@ export function ChatWorkspace({
               {model === 'gpt6Sol' ? (
                 <>
                   深入分析 · <em className="chat-search-description">可查詢網路資料</em>
+                </>
+              ) : model === 'deepseekPro' ? (
+                <>
+                  深入推理 · <em className="chat-upload-description">不支援上傳檔案</em>
                 </>
               ) : (
                 chatModels[model].description
@@ -991,7 +1017,9 @@ export function ChatWorkspace({
             className={`chat-panels ${fullModel ? 'has-expanded' : ''}`}
             style={{
               gridTemplateRows: current.models
-                .map((model) => (fullModel && fullModel !== model ? 'minmax(0, 0fr)' : 'minmax(0, 1fr)'))
+                .map((model) =>
+                  fullModel && fullModel !== model ? 'minmax(0, 0fr)' : 'minmax(0, 1fr)',
+                )
                 .join(' '),
             }}
           >
@@ -1091,7 +1119,10 @@ export function ChatWorkspace({
               }}
             />
             <div className="chat-composer-tools">
-              <label className={`chat-action ${preparing || submitting ? 'disabled' : ''}`}>
+              <label
+                className={`chat-action ${preparing || submitting || uploadsDisabled ? 'disabled' : ''}`}
+                title={uploadsDisabled ? 'DeepSeek Pro 不支援上傳檔案' : undefined}
+              >
                 <Paperclip size={18} />
                 {preparing ? '處理檔案…' : '上傳檔案'}
                 <input
@@ -1099,7 +1130,7 @@ export function ChatWorkspace({
                   aria-label="加入聊天附件"
                   multiple
                   accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt"
-                  disabled={preparing || submitting}
+                  disabled={preparing || submitting || uploadsDisabled}
                   onChange={(event) => {
                     const files = [...(event.target.files ?? [])];
                     event.target.value = '';

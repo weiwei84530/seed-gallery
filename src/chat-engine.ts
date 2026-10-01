@@ -73,6 +73,7 @@ async function runModel(
   model: ChatModelId,
   key: string,
   systemPrompt?: string,
+  chatMode?: import('./chat-types').ChatMode,
 ) {
   const turn = session.turns.at(-1)!;
   const answer = turn.answers[model]!.at(-1)!;
@@ -120,6 +121,7 @@ async function runModel(
       messages,
       search: turn.search,
       systemPrompt,
+      chatMode,
       taskUUID: answer.taskUUID,
       signal: controller.signal,
       onUpdate(update) {
@@ -163,6 +165,7 @@ export function sendChat(options: {
   search: boolean;
   retryModel?: ChatModelId;
   systemPrompt?: string;
+  chatMode?: import('./chat-types').ChatMode;
 }) {
   return new Promise<void>((resolve, reject) => {
     if (!navigator.locks) {
@@ -238,7 +241,9 @@ export function sendChat(options: {
         });
         resolve();
         await Promise.allSettled(
-          targets.map((model) => runModel(session, model, options.key, options.systemPrompt)),
+          targets.map((model) =>
+            runModel(session, model, options.key, options.systemPrompt, options.chatMode),
+          ),
         );
       })
       .catch(reject);

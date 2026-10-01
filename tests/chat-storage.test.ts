@@ -369,6 +369,8 @@ it('backs up and restores the system prompt without copying the key or display p
     showMoney: false,
     balanceLimit: 30,
     chatSystemPrompt: 'Use short answers.',
+    chatModeControls: false,
+    chatMode: 'balanced',
   });
   const legacy = JSON.parse(manifestText);
   delete legacy.chatSettings;

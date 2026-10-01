@@ -20,6 +20,17 @@ async function setup(page: Page, hidden = false) {
       return route.fulfill({ json: { data: [{ balance: 12.34 }] } });
     requests.push(task);
     const answer = `Answer from ${task.model}\n\n${'A useful response. '.repeat(60)}\nLAST LINE`;
+    if (route.request().url().endsWith('/messages')) {
+      const events = [
+        { type: 'content_block_delta', delta: { type: 'text_delta', text: answer } },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { cost: 0.001 } },
+        { type: 'message_stop' },
+      ];
+      return route.fulfill({
+        contentType: 'text/event-stream',
+        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
+      });
+    }
     const event =
       task.taskType === 'responses'
         ? {
@@ -346,7 +357,7 @@ test('selects three new models and sends the first question directly', async ({ 
   const requests = await setup(page);
   await page.locator('.chat-model-option.selected').first().click();
   await page.locator('.chat-model-option.selected').first().click();
-  for (const name of ['MiniMax M3', 'DeepSeek V4.1 Flash', 'Claude Opus 5.5']) {
+  for (const name of ['MiniMax M3', 'DeepSeek V4 Pro', 'Claude Opus 5.5']) {
     await page.locator('.chat-model-option').filter({ hasText: name }).click();
   }
   await expect(page.locator('.chat-model-option.selected')).toHaveCount(3);
@@ -356,7 +367,7 @@ test('selects three new models and sends the first question directly', async ({ 
   await expect.poll(() => requests.length).toBe(3);
   expect(requests.map((request) => request.model).sort()).toEqual([
     'anthropic:claude@opus-5.5',
-    'deepseek:v4.1@flash',
+    'deepseek:v4@pro',
     'minimax:m3@0',
   ]);
 });
@@ -448,6 +459,54 @@ test('compact picker, independent scroll positions, fixed composer and six-line 
   expect(shortCards[1].top).toBeGreaterThanOrEqual(shortCards[0].bottom);
   expect(shortCards[2].top).toBeGreaterThanOrEqual(shortCards[1].bottom);
   await page.screenshot({ path: info.outputPath('short-viewport.png') });
+});
+
+test('shared thinking preferences reset across disable, re-enable and reload', async ({ page }) => {
+  const requests = await setup(page);
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await page.getByText('聊天偏好', { exact: true }).click();
+  const control = page.getByRole('switch', { name: '自訂思考模式' });
+  await expect(control).not.toBeChecked();
+  await control.check();
+  await page.getByLabel('思考模式（所有 AI 共用）').selectOption('deep');
+  await page.getByRole('dialog').getByRole('button', { name: '關閉', exact: true }).click();
+  await send(page, 'Deep request');
+  await expect.poll(() => requests.length).toBe(2);
+  const bodies = requests as unknown as {
+    reasoning?: { effort: string };
+    reasoning_effort?: string;
+  }[];
+  expect(bodies[0].reasoning?.effort).toBe('high');
+  expect(bodies[1].reasoning_effort).toBe('high');
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await page.getByText('聊天偏好', { exact: true }).click();
+  await control.uncheck();
+  await control.check();
+  await expect(page.getByLabel('思考模式（所有 AI 共用）')).toHaveValue('balanced');
+  await control.uncheck();
+  await page.getByRole('dialog').getByRole('button', { name: '關閉', exact: true }).click();
+  await page.reload();
+  await send(page, 'Balanced request');
+  await expect.poll(() => requests.length).toBe(4);
+  expect(bodies[2].reasoning?.effort).toBe('medium');
+  expect(bodies[3].reasoning_effort).toBe('medium');
+});
+
+test('Pro disables uploads and blocks selection with queued attachments', async ({ page }) => {
+  await setup(page);
+  const pro = page.locator('.chat-model-option').filter({ hasText: 'DeepSeek V4 Pro' });
+  await expect(pro.locator('.chat-upload-description')).toHaveText('不支援上傳檔案');
+  await pro.click();
+  await expect(page.getByLabel('加入聊天附件')).toBeDisabled();
+  await pro.click();
+  await expect(page.getByLabel('加入聊天附件')).toBeEnabled();
+  await page
+    .getByLabel('加入聊天附件')
+    .setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('Test file') });
+  await expect(page.locator('.chat-attachment')).toHaveCount(1);
+  await pro.click();
+  await expect(pro).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.chat-attachment')).toHaveCount(1);
 });
 
 test('system prompt applies on next send in existing chats and prices follow the display preference', async ({

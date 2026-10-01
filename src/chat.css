@@ -290,6 +290,11 @@
   font-weight: 650;
   font-style: normal;
 }
+.chat-model-option .chat-upload-description {
+  color: #8a6044;
+  font-weight: 650;
+  font-style: normal;
+}
 .chat-model-option strong {
   font-size: 16px;
 }

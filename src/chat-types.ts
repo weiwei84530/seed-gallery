@@ -10,10 +10,12 @@ export const chatModelIds = [
   'gemini',
   'claude',
   'deepseek',
+  'deepseekPro',
   'glm',
   'kimi',
 ] as const;
 export type ChatModelId = (typeof chatModelIds)[number];
+export type ChatMode = 'fast' | 'balanced' | 'deep';
 
 export interface ChatAttachment {
   id: string;
