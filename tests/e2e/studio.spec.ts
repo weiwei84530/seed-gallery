@@ -117,9 +117,9 @@ test('v2 model pricing, actual dimensions and fullscreen return preserve the wor
   );
   await expect(page.locator('.cost-summary')).toContainText('總費用暫無法預估');
   await page.getByRole('button', { name: '新增模型', exact: true }).click();
-  await expect(page.getByRole('button', { name: '新增 FLUX.2 Pro', exact: true })).toContainText(
-    '目前設定尚無可用估價',
-  );
+  await expect(
+    page.getByRole('button', { name: '新增 Grok Imagine Image 2.0', exact: true }),
+  ).toContainText('目前設定尚無可用估價');
   await page.getByRole('button', { name: '取消新增模型' }).click();
   await expect(page.locator('.quantity-card')).toContainText('04');
   await page.getByRole('button', { name: '開始生成圖片' }).click();
@@ -710,7 +710,7 @@ test('expanded image models generate alongside existing models and pass through 
   const api = await mockRunware(page);
   await setup(page);
   await newWork(page);
-  for (const model of ['FLUX.2 Pro', 'Seedream 5.0 Pro']) {
+  for (const model of ['Grok Imagine Image 2.0', 'Muse Image', 'Seedream 5.0 Pro']) {
     await page.getByRole('button', { name: '新增模型' }).click();
     await page.getByRole('button', { name: `新增 ${model}`, exact: true }).click();
   }
@@ -721,12 +721,13 @@ test('expanded image models generate alongside existing models and pass through 
   });
   await expect(page.getByAltText('參考照片 1')).toBeVisible();
   await page.getByRole('button', { name: '開始修改照片' }).click();
-  await expect(page.getByRole('button', { name: /檢視 .* 圖片/ })).toHaveCount(4);
+  await expect(page.getByRole('button', { name: /檢視 .* 圖片/ })).toHaveCount(5);
   expect(api.submitted.map((t) => t.model).sort()).toEqual([
-    'bfl:5@1',
     'bytedance:seedream@5.0-pro',
     'google:4@3',
+    'meta:muse@image',
     'openai:gpt-image@2.5-sunburst',
+    'xai:grok-imagine@image-2.0',
   ]);
   expect(api.submitted.every((t) => t.inputs?.referenceImages.length === 1)).toBe(true);
 });
@@ -1061,8 +1062,11 @@ test('balance limit persists and advanced settings only appear when relevant', a
   await newWork(page);
   await page.getByLabel('移除 Nano Banana 2').click();
   await page.getByLabel('移除 GPT Image 2.5 Sunburst').click();
+  await expect(page.getByText('進階設定', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '新增模型' }).click();
-  await page.getByRole('button', { name: '新增 FLUX.2 Pro', exact: true }).click();
+  await page.getByRole('button', { name: '新增 Grok Imagine Image 2.0', exact: true }).click();
+  await expect(page.getByText('進階設定', { exact: true })).toBeVisible();
+  await page.getByLabel('移除 Grok Imagine Image 2.0').click();
   await expect(page.getByText('進階設定', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '新增模型' }).click();
   await page.getByRole('button', { name: '新增 Seedream 5.0 Pro', exact: true }).click();
@@ -1104,11 +1108,11 @@ test('workspace tabs slide and model cards open directly without a select', asyn
   );
 
   await page.getByRole('button', { name: '新增模型', exact: true }).click();
-  const flux = page.getByRole('button', { name: '新增 FLUX.2 Pro', exact: true });
-  await expect(flux).toBeVisible();
-  await expect(flux.locator('img')).toBeVisible();
-  await expect(flux.locator('small').first()).not.toBeEmpty();
-  await flux.scrollIntoViewIfNeeded();
+  const grok = page.getByRole('button', { name: '新增 Grok Imagine Image 2.0', exact: true });
+  await expect(grok).toBeVisible();
+  await expect(grok.locator('img')).toBeVisible();
+  await expect(grok.locator('small').first()).not.toBeEmpty();
+  await grok.scrollIntoViewIfNeeded();
   const headerBottom = await page
     .locator('.topbar')
     .evaluate((element) => element.getBoundingClientRect().bottom);
@@ -1118,18 +1122,18 @@ test('workspace tabs slide and model cards open directly without a select', asyn
     page.getByRole('button', { name: '新增 GPT Image 2.5 Sunburst', exact: true }),
   ).toHaveCount(0);
   await expect(page.getByLabel('選擇新增模型')).toHaveCount(0);
-  await flux.focus();
+  await grok.focus();
   await page.keyboard.press('Escape');
-  await expect(flux).toBeHidden();
+  await expect(grok).toBeHidden();
   await expect(page.getByRole('button', { name: '新增模型', exact: true })).toBeFocused();
   await page.getByRole('button', { name: '新增模型', exact: true }).click();
-  await flux.click();
-  await expect(page.getByLabel('移除 FLUX.2 Pro')).toBeVisible();
+  await grok.click();
+  await expect(page.getByLabel('移除 Grok Imagine Image 2.0')).toBeVisible();
   await expect(page.getByRole('button', { name: '新增模型', exact: true })).toHaveAttribute(
     'aria-expanded',
     'false',
   );
-  await page.getByLabel('移除 FLUX.2 Pro').click();
+  await page.getByLabel('移除 Grok Imagine Image 2.0').click();
 
   await page.getByRole('button', { name: '開始生成圖片' }).click();
   await expect(results.locator('.count')).toHaveText('2');
@@ -1156,19 +1160,23 @@ test('model selectors replace in place, join option rows, and keep removal indep
   await expect(
     page.getByRole('button', { name: '改用 GPT Image 2.5 Sunburst', exact: true }),
   ).toHaveCount(0);
-  const flux = page.getByRole('button', { name: '改用 FLUX.2 Pro', exact: true });
-  await flux.click();
-  await expect(picker.locator('.model-trigger').first()).toHaveAccessibleName('替換 FLUX.2 Pro');
+  const grok = page.getByRole('button', { name: '改用 Grok Imagine Image 2.0', exact: true });
+  await grok.click();
+  await expect(picker.locator('.model-trigger').first()).toHaveAccessibleName(
+    '替換 Grok Imagine Image 2.0',
+  );
   await expect(picker.locator('.model-trigger').first()).toBeFocused();
   await expect(picker.locator('.model-trigger')).toHaveCount(2);
   await page.reload();
-  await expect(picker.locator('.model-trigger').first()).toHaveAccessibleName('替換 FLUX.2 Pro');
+  await expect(picker.locator('.model-trigger').first()).toHaveAccessibleName(
+    '替換 Grok Imagine Image 2.0',
+  );
   await expect(page.getByLabel('描述你的想法')).toHaveValue('一隻貓咪在溫柔的花園中');
 
   const gpt = page.getByRole('button', { name: '替換 GPT Image 2.5 Sunburst', exact: true });
   await gpt.focus();
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('button', { name: '改用 Nano Banana 2', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: '改用 Muse Image', exact: true })).toBeFocused();
   await page.keyboard.press('End');
   await expect(
     page.getByRole('button', { name: '改用 Seedream 5.0 Pro', exact: true }),
@@ -1177,10 +1185,10 @@ test('model selectors replace in place, join option rows, and keep removal indep
   await expect(gpt).toBeFocused();
   await expect(gpt).toHaveAttribute('aria-expanded', 'false');
   await gpt.click();
-  await page.getByRole('button', { name: '替換 FLUX.2 Pro', exact: true }).click();
+  await page.getByRole('button', { name: '替換 Grok Imagine Image 2.0', exact: true }).click();
   await expect(picker.locator('[data-open="true"]')).toHaveCount(1);
   await expect(gpt).toHaveAttribute('aria-expanded', 'false');
-  await page.getByLabel('移除 FLUX.2 Pro', { exact: true }).click();
+  await page.getByLabel('移除 Grok Imagine Image 2.0', { exact: true }).click();
   await expect(picker.locator('[data-open="true"]')).toHaveCount(0);
   await expect(picker.locator('.model-trigger')).toHaveCount(1);
   await expect(gpt).toBeFocused();
@@ -1223,13 +1231,14 @@ test('model selectors replace in place, join option rows, and keep removal indep
   for (const name of [
     'Nano Banana 2',
     'GPT Image 2.5 Sunburst',
-    'FLUX.2 Pro',
+    'Grok Imagine Image 2.0',
+    'Muse Image',
     'Seedream 5.0 Pro',
   ]) {
     await page.getByRole('button', { name: '新增模型', exact: true }).click();
     await page.getByRole('button', { name: `新增 ${name}`, exact: true }).click();
   }
-  await expect(picker.locator('.model-trigger')).toHaveCount(4);
+  await expect(picker.locator('.model-trigger')).toHaveCount(5);
   await expect(page.getByRole('button', { name: '新增模型', exact: true })).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: '替換 Seedream 5.0 Pro', exact: true }),
