@@ -2170,8 +2170,8 @@ footer a {
   position: sticky;
   top: 0;
   z-index: 12;
-  flex-wrap: wrap;
-  row-gap: 8px;
+  flex-wrap: nowrap;
+  gap: 8px;
   min-height: calc(91px + env(safe-area-inset-top));
   padding: calc(24px + env(safe-area-inset-top)) 0 22px;
   background: color-mix(in srgb, var(--paper) 95%, transparent);
@@ -2180,7 +2180,22 @@ footer a {
 .brand {
   gap: 11px;
   font-size: 19px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.brand > span {
+  min-width: 0;
+}
+.brand small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
 }
 .header-tools {
   display: flex;
@@ -2213,8 +2228,33 @@ footer a {
   .header-tools .balance span {
     display: none;
   }
-  .header-tools {
+  .header-tools,
+  .header-status {
     gap: 6px;
+  }
+}
+@media (max-width: 520px) {
+  .header-status {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    max-width: 108px;
+  }
+  .header-status .connected {
+    max-width: 100%;
+    padding: 1px 4px;
+  }
+  .header-status .connected b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .header-status .connected > span {
+    flex-shrink: 0;
+  }
+  .header-status .balance {
+    min-height: 24px;
+    padding-block: 3px;
   }
 }
 

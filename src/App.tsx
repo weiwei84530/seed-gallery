@@ -1514,27 +1514,29 @@ export default function App() {
         </button>
         {enteredStudio && (
           <div className="header-tools">
-            <button
-              className={`connected ${connectionState}`}
-              aria-label={`服務狀態：${connectionLabel}`}
-              title={apiKey ? `${connectionLabel}，點此重新檢查` : '未設定服務，點此開啟設定'}
-              onClick={() =>
-                apiKey
-                  ? void refreshBalance()
-                  : navigate({ screen, workId, workTab, sessionId: chatId, overlay: 'settings' })
-              }
-              disabled={balanceLoading}
-            >
-              <span />
-              <b>{connectionLabel}</b>
-            </button>
-            {apiKey && preferences.showMoney && (
-              <MoneyBadge
-                balance={balance}
-                loading={balanceLoading}
-                refresh={() => void refreshBalance()}
-              />
-            )}
+            <div className="header-status">
+              <button
+                className={`connected ${connectionState}`}
+                aria-label={`服務狀態：${connectionLabel}`}
+                title={apiKey ? `${connectionLabel}，點此重新檢查` : '未設定服務，點此開啟設定'}
+                onClick={() =>
+                  apiKey
+                    ? void refreshBalance()
+                    : navigate({ screen, workId, workTab, sessionId: chatId, overlay: 'settings' })
+                }
+                disabled={balanceLoading}
+              >
+                <span />
+                <b>{connectionLabel}</b>
+              </button>
+              {apiKey && preferences.showMoney && (
+                <MoneyBadge
+                  balance={balance}
+                  loading={balanceLoading}
+                  refresh={() => void refreshBalance()}
+                />
+              )}
+            </div>
             <button
               className="icon-button settings-button"
               aria-label="設定"
