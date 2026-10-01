@@ -44,6 +44,33 @@ test('mobile header keeps both captions and install card follows recent works', 
   }
 });
 
+test('uploaded reference opens fullscreen and returns without removing the photo or generating', async ({
+  page,
+}) => {
+  const api = await mockRunware(page);
+  await setup(page);
+  await page.getByRole('button', { name: /製作圖片/ }).click();
+  await page.getByLabel('編輯照片', { exact: true }).setInputFiles({
+    name: 'photo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(PNG, 'base64'),
+  });
+  await page.getByRole('button', { name: '放大參考照片 1', exact: true }).click();
+  const preview = page.getByRole('dialog', { name: '參考照片', exact: true });
+  await expect(preview.getByAltText('上傳的參考照片')).toBeVisible();
+  await expect(preview.getByRole('button')).toHaveCount(1);
+  await expect(preview).toHaveClass(/fullscreen-viewer/);
+  await preview.getByRole('button', { name: '離開滿版檢視' }).click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByAltText('參考照片 1')).toBeVisible();
+  await page.getByRole('button', { name: '放大參考照片 1', exact: true }).click();
+  await page.goBack();
+  await expect(preview).toHaveCount(0);
+  await page.getByRole('button', { name: '移除參考照片 1', exact: true }).click();
+  await expect(page.getByAltText('參考照片 1')).toHaveCount(0);
+  expect(api.submitted).toHaveLength(0);
+});
+
 test('rapid clicks submit once and reset removes saved data and credentials', async ({ page }) => {
   const api = await mockRunware(page);
   page.on('dialog', (d) => void d.accept());

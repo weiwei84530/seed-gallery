@@ -125,6 +125,7 @@ interface NavigationState {
   workTab?: WorkTab;
   overlay?: 'settings' | 'viewer' | 'fullscreen' | 'key';
   jobId?: string;
+  referenceId?: string;
 }
 
 const isSystemTitle = (title: string) => ['還沒命名的作品', '從照片開始的新作品'].includes(title);
@@ -443,6 +444,7 @@ function Workspace({
   initialTab,
   notify,
   openImage,
+  openReference,
 }: {
   work: Work;
   jobs: Job[];
@@ -453,6 +455,7 @@ function Workspace({
   initialTab: WorkTab;
   notify: Notify;
   openImage: (job: Job) => void;
+  openReference: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => currentDraft(work.draft));
   const latestDraft = useRef(draft);
@@ -628,7 +631,13 @@ function Workspace({
             <div className="refs">
               {draft.refs.map((ref, index) => (
                 <div className="ref-image" key={ref}>
-                  <LocalImage id={ref} alt={`參考照片 ${index + 1}`} />
+                  <button
+                    className="ref-preview"
+                    aria-label={`放大參考照片 ${index + 1}`}
+                    onClick={() => openReference(ref)}
+                  >
+                    <LocalImage id={ref} alt={`參考照片 ${index + 1}`} />
+                  </button>
                   <button
                     aria-label={`移除參考照片 ${index + 1}`}
                     onClick={() => update({ refs: draft.refs.filter((r) => r !== ref) })}
@@ -1139,6 +1148,7 @@ export default function App() {
   const [settings, setSettings] = useState(false);
   const [imageJob, setImageJob] = useState<Job | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [referenceId, setReferenceId] = useState<string | null>(null);
   const [actualSize, setActualSize] = useState<{ width: number; height: number } | null>(null);
   const [libraryLimit, setLibraryLimit] = useState(10);
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -1200,6 +1210,7 @@ export default function App() {
     setWorkTab(state.workTab ?? 'edit');
     setSettings(state.overlay === 'settings');
     setFullscreen(state.overlay === 'fullscreen');
+    setReferenceId(state.overlay === 'fullscreen' ? (state.referenceId ?? null) : null);
     setImageJob(
       (state.overlay === 'viewer' || state.overlay === 'fullscreen') && state.jobId
         ? (jobsRef.current.find((job) => job.id === state.jobId) ?? null)
@@ -1222,6 +1233,7 @@ export default function App() {
       setSettings(false);
       setImageJob(null);
       setFullscreen(false);
+      setReferenceId(null);
     }
   }, []);
 
@@ -1814,6 +1826,15 @@ export default function App() {
               showMoney={preferences.showMoney}
               initialTab={workTab}
               notify={notify}
+              openReference={(referenceId) =>
+                navigate({
+                  screen: 'work',
+                  workId: current.id,
+                  workTab,
+                  overlay: 'fullscreen',
+                  referenceId,
+                })
+              }
               openImage={(job) =>
                 navigate({
                   screen: 'work',
@@ -2180,6 +2201,13 @@ export default function App() {
                 weiweistudio.com <ExternalLink size={12} />
               </a>
             </div>
+          </div>
+        </Modal>
+      )}
+      {enteredStudio && referenceId && (
+        <Modal title="參考照片" fullscreen close={() => closeOverlay('fullscreen')}>
+          <div className="viewer-image">
+            <LocalImage id={referenceId} alt="上傳的參考照片" />
           </div>
         </Modal>
       )}
