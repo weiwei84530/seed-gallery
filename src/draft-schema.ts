@@ -13,6 +13,8 @@ export const draftSchema = z.object({
   gptQuality: z.enum(['auto', 'low', 'medium', 'high']),
   gptBackground: z.enum(['auto', 'opaque', 'transparent']),
   seedreamThinking: z.boolean().optional(),
+  grokQuality: z.enum(['low', 'medium']).optional(),
+  grokResolution: z.enum(['1K', '2K']).optional(),
   duration: z.union([z.literal(4), z.literal(6), z.literal(8)]).optional(),
   videoResolution: z.enum(['720p', '1080p']).optional(),
   videoResolutions: z.partialRecord(z.enum(modelIds), z.enum(videoResolutions)).optional(),

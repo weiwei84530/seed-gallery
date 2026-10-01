@@ -1,6 +1,22 @@
 import { isVideo, type Draft, type ModelId, type VideoResolution, type WorkKind } from './types';
 
 export const models = {
+  grok: {
+    kind: 'image',
+    name: 'Grok Imagine Image 2.0',
+    maker: 'XAI',
+    air: 'xai:grok-imagine@image-2.0',
+    note: '文字設計・靈活改圖',
+    letter: 'G',
+  },
+  muse: {
+    kind: 'image',
+    name: 'Muse Image',
+    maker: 'META',
+    air: 'meta:muse@image',
+    note: '細緻創作・2K 圖片',
+    letter: 'M',
+  },
   banana: {
     kind: 'image',
     name: 'Nano Banana 2',
@@ -109,7 +125,7 @@ export const models = {
 
 export const modelsFor = (kind: WorkKind) =>
   (Object.keys(models) as ModelId[]).filter(
-    (id) => !['gpt', 'gptFlare', 'veo'].includes(id) && models[id].kind === kind,
+    (id) => !['gpt', 'gptFlare', 'veo', 'flux'].includes(id) && models[id].kind === kind,
   );
 
 // Veo remains readable for historical jobs and backups, but is no longer offered.
@@ -151,11 +167,17 @@ export function currentDraft(draft: Draft): Draft {
     models: [
       ...new Set(
         draft.models
-          .filter((id) => id !== 'veo')
+          .filter((id) => id !== 'veo' && id !== 'flux')
           .map((id) => (id === 'gpt' || id === 'gptFlare' ? ('gptSunburst' as const) : id)),
       ),
     ],
   };
+  if (!isVideo(next)) {
+    if (!next.models.length && draft.models.includes('flux'))
+      next.models = ['banana', 'gptSunburst'];
+    next.grokQuality = draft.grokQuality ?? 'medium';
+    next.grokResolution = draft.grokResolution ?? draft.resolution;
+  }
   if (isVideo(next)) {
     if (!next.models.length && draft.models.includes('veo')) next.models = ['kling'];
     next.videoResolutions = { ...draft.videoResolutions };
@@ -195,6 +217,27 @@ export const promptLimit = (draft: Draft) =>
     32000,
   );
 export function dimensions(model: ModelId, draft: Draft) {
+  if (model === 'muse') {
+    return draft.ratio === 'square'
+      ? { width: 1600, height: 1600 }
+      : draft.ratio === 'portrait'
+        ? { width: 1152, height: 2048 }
+        : { width: 2048, height: 1152 };
+  }
+  if (model === 'grok') {
+    const large = (draft.grokResolution ?? draft.resolution) === '2K';
+    const size =
+      draft.ratio === 'square'
+        ? large
+          ? [2048, 2048]
+          : [1024, 1024]
+        : large
+          ? [1584, 2816]
+          : [720, 1280];
+    return draft.ratio === 'landscape'
+      ? { width: size[1], height: size[0] }
+      : { width: size[0], height: size[1] };
+  }
   if (models[model].kind === 'video') {
     const resolution = videoResolutionFor(model, draft);
     const landscape =
@@ -263,6 +306,8 @@ export function validateDraft(draft: Draft) {
   if (!Number.isInteger(draft.count) || draft.count < 1 || draft.count > 4)
     throw new Error('每個模型可生成 1 至 4 張。');
   if (draft.refs.length > 4) throw new Error('每次最多使用 4 張參考照片。');
+  if (draft.models.includes('grok') && draft.refs.length > 3)
+    throw new Error('Grok 最多使用 3 張參考照片，請移除一張照片或更換模型。');
   if (draft.models.some((m) => models[m].kind !== (draft.kind ?? 'image')))
     throw new Error('請選擇符合這份作品類別的模型。');
   if (draft.prompt.length > promptLimit(draft))
@@ -358,24 +403,30 @@ export function buildRequest(
     taskUUID: id,
     model: models[model].air,
     positivePrompt: draft.prompt.trim(),
-    ...dimensions(model, draft),
+    ...(references.length && (model === 'grok' || model === 'muse')
+      ? { resolution: model === 'muse' ? '2K' : (draft.grokResolution ?? draft.resolution) }
+      : dimensions(model, draft)),
     numberResults: 1,
     outputType: 'dataURI',
     outputFormat: 'PNG',
     deliveryMethod: 'async',
     includeCost: true,
     ...(references.length ? { inputs: { referenceImages: references } } : {}),
-    ...(model === 'banana'
-      ? { providerSettings: { google: { webSearch: draft.googleSearch } } }
-      : model === 'gptSunburst' || model === 'gptFlare'
-        ? { settings: { quality: draft.gptQuality, background: draft.gptBackground } }
-        : model === 'gpt'
-          ? {
-              providerSettings: { openai: { quality: draft.gptQuality } },
-              settings: { background: draft.gptBackground },
-            }
-          : model === 'seedream'
-            ? { settings: { thinking: draft.seedreamThinking ?? true } }
-            : {}),
+    ...(model === 'grok'
+      ? { settings: { quality: draft.grokQuality ?? 'medium' } }
+      : model === 'muse'
+        ? { settings: { thinkingLevel: 'high', webSearch: false, imageSearch: false, shell: true } }
+        : model === 'banana'
+          ? { providerSettings: { google: { webSearch: draft.googleSearch } } }
+          : model === 'gptSunburst' || model === 'gptFlare'
+            ? { settings: { quality: draft.gptQuality, background: draft.gptBackground } }
+            : model === 'gpt'
+              ? {
+                  providerSettings: { openai: { quality: draft.gptQuality } },
+                  settings: { background: draft.gptBackground },
+                }
+              : model === 'seedream'
+                ? { settings: { thinking: draft.seedreamThinking ?? true } }
+                : {}),
   };
 }

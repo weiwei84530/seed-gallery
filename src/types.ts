@@ -5,6 +5,8 @@ export const modelIds = [
   'gptSunburst',
   'flux',
   'seedream',
+  'grok',
+  'muse',
   'kling',
   'seedance',
   'omni',
@@ -30,6 +32,8 @@ export interface Draft {
   gptQuality: 'auto' | 'low' | 'medium' | 'high';
   gptBackground: 'auto' | 'opaque' | 'transparent';
   seedreamThinking?: boolean;
+  grokQuality?: 'low' | 'medium';
+  grokResolution?: '1K' | '2K';
   duration?: number;
   videoResolution?: '720p' | '1080p';
   videoResolutions?: Partial<Record<ModelId, VideoResolution>>;

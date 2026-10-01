@@ -473,9 +473,11 @@ function Workspace({
   const unit = video ? '支' : '張';
   const mediaName = video ? '影片' : '圖片';
   const availableModels = modelsFor(video ? 'video' : 'image');
-  const maxRefs = video ? 1 : 4;
+  const maxRefs = video ? 1 : draft.models.includes('grok') ? 3 : 4;
   const advancedModels = draft.models.filter(
-    (model) => video || ['banana', 'gpt', 'gptFlare', 'gptSunburst', 'seedream'].includes(model),
+    (model) =>
+      video ||
+      ['banana', 'gpt', 'gptFlare', 'gptSunburst', 'seedream', 'grok', 'muse'].includes(model),
   );
   useEffect(() => {
     let live = true;
@@ -692,11 +694,20 @@ function Workspace({
             <ModelPicker
               selected={draft.models}
               available={availableModels}
-              onChange={(selected) => update({ models: selected })}
+              onChange={(selected) => {
+                if (selected.includes('grok') && draft.refs.length > 3) {
+                  notify('Grok 最多使用 3 張參考照片，請先移除一張照片。');
+                  return;
+                }
+                update({ models: selected });
+              }}
               estimates={estimates}
               showMoney={showMoney}
             />
             <p className="hint">每個 AI 都會使用同一段描述來建立成品。</p>
+            {!video && draft.models.includes('grok') && (
+              <p className="hint">Grok 最多使用 3 張參考照片。</p>
+            )}
           </section>
           <section className="card">
             <h2 className="section-label">
@@ -766,6 +777,12 @@ function Workspace({
                 </p>
               </>
             )}
+            {!video && draft.models.some((model) => model === 'grok' || model === 'muse') && (
+              <p className="hint">
+                Grok 的清晰度在進階設定中獨立調整；Muse 固定約
+                2K。有照片時，這兩個模型會沿用照片比例。
+              </p>
+            )}
             {advancedModels.length > 0 && (
               <details className="advanced">
                 <summary>
@@ -777,11 +794,42 @@ function Workspace({
                   <div className="advanced-model" key={model}>
                     <strong>{models[model].name}</strong>
                     <small>
-                      {video && draft.refs.length
+                      {(video || model === 'grok' || model === 'muse') && draft.refs.length
                         ? '依照片決定尺寸'
                         : `輸出 ${dimensions(model, draft).width} × ${dimensions(model, draft).height} px`}{' '}
                       · {video ? 'MP4' : 'PNG'}
                     </small>
+                    {model === 'grok' && (
+                      <>
+                        <label className="setting-row">
+                          解析度
+                          <select
+                            aria-label="Grok 解析度"
+                            value={draft.grokResolution ?? draft.resolution}
+                            onChange={(e) =>
+                              update({ grokResolution: e.target.value as Draft['grokResolution'] })
+                            }
+                          >
+                            <option value="1K">標準 · 1K</option>
+                            <option value="2K">細緻 · 2K</option>
+                          </select>
+                        </label>
+                        <label className="setting-row">
+                          繪製品質
+                          <select
+                            aria-label="Grok 繪製品質"
+                            value={draft.grokQuality ?? 'medium'}
+                            onChange={(e) =>
+                              update({ grokQuality: e.target.value as Draft['grokQuality'] })
+                            }
+                          >
+                            <option value="low">快速 · low</option>
+                            <option value="medium">細緻 · medium</option>
+                          </select>
+                        </label>
+                      </>
+                    )}
+                    {model === 'muse' && <p className="hint">固定約 2K，依比例調整尺寸。</p>}
                     {video && (
                       <>
                         <label className="setting-row">

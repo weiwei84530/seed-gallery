@@ -29,7 +29,7 @@ Key 驗證成功後會保存到此瀏覽器。設定中可以更換 Key、移除
 
 | 類別 | 模型                                                                                            | 輸入               |
 | ---- | ----------------------------------------------------------------------------------------------- | ------------------ |
-| 圖片 | Nano Banana 2、GPT Image 2.5 Sunburst、FLUX.2 Pro、Seedream 5.0 Pro                             | 文字、參考照片修改 |
+| 圖片 | Nano Banana 2、GPT Image 2.5 Sunburst、Seedream 5.0 Pro、Grok Imagine Image 2.0、Muse Image | 文字、參考照片修改 |
 | 影片 | Gemini Omni Flash 1.1、Wan 3.0、Seedance 2.0 Fast、MiniMax H3、Kling 3.0 Standard、Seedance 2.5 | 文字、單張起始照片 |
 
 首次使用時，圖片預選 Nano Banana 2 與 GPT Image 2.5 Sunburst；影片預選 Kling 3.0 Standard，每個模型一支、4 秒、720p，預設有聲。可以多選模型比較結果，各模型分別計費。聊天的新對話可同時選擇兩個 AI，各自回答相同問題。舊作品保留原本模型名稱；開啟舊圖片草稿時，GPT Image 2 與 Flare 的編輯選項改用 Sunburst。Veo 不再提供於模型選單，舊影片與備份仍可瀏覽；僅選 Veo 的舊草稿改用 Kling。
@@ -88,6 +88,8 @@ npm run test:e2e
 - Key 更換後，舊任務需要原 Key 查詢。備份還原中的未完成任務不會自動送出或查詢。
 - 圖片參考照片最多 4 張；影片使用單張起始照片。支援 JPG、PNG、WebP，每張 15 MB 內。HEIC 請先轉檔。
 - 圖片共用解析度為 1K／2K；直向及橫向比例約為 9:16／16:9。進階設定列出各模型請求的實際尺寸，不裁切生成圖片。每個模型每次可生成 1–4 張。
+- Grok Imagine Image 2.0 預設 medium，進階設定可獨立選擇 low／medium 與 1K／2K；最多 3 張參考照片。Muse Image 固定約 2K。這兩款模型有照片時依照片比例輸出，介面選擇的比例僅用於純文字生圖。FLUX 不再提供於新生成選單，舊作品與備份仍保留；只有 FLUX 的舊草稿改用預選的 Nano Banana 2 與 Sunburst。
+- 新增圖片模型依 [Grok Runware 文件](https://runware.ai/docs/models/xai-grok-imagine-image-2-0) 與 [Muse Runware 文件](https://runware.ai/docs/models/meta-muse-image) 串接；已各完成一張中文海報的真實文字生成，照片修改僅驗證模擬請求。上傳照片可點選縮圖進入滿版預覽，再關閉或返回編輯。
 - 影片提供 4／6／8 秒，每個模型每次可生成 1–2 支 MP4。進階設定可分別選擇模型解析度：Omni 360p／720p、Wan 與 Seedance 2.0 Fast 480p／720p、MiniMax 768p／1440p、Kling 720p、Seedance 2.5 480p。預設最接近 720p（MiniMax 768p、Seedance 2.5 480p）。Omni 文生影片支援直向與橫向，其餘模型也支援方形。
 - 有起始照片時，影片比例由照片與模型支援能力決定，不強制套用文字生影片的比例。所有影片預設有聲；進階設定可按模型勾選「關閉聲音」，Omni 與 MiniMax 固定有聲。聲音由模型生成，可能影響費用，實際效果依模型而異。
 - 影片保存上限為單檔 100 MB。瀏覽器無法內播時顯示下載提示，可下載後用裝置播放器開啟。

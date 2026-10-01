@@ -268,6 +268,55 @@ type Task = {
   apiKey?: string;
   [key: string]: unknown;
 };
+
+test('Grok and Muse replace FLUX and retain advanced settings for photo generation', async ({
+  page,
+}) => {
+  const api = await mockRunware(page);
+  await setup(page);
+  await newWork(page);
+  await page.getByRole('button', { name: '替換 Nano Banana 2', exact: true }).click();
+  await expect(page.getByRole('button', { name: '改用 FLUX.2 Pro', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '改用 Grok Imagine Image 2.0', exact: true }).click();
+  await page.getByRole('button', { name: '替換 GPT Image 2.5 Sunburst', exact: true }).click();
+  await page.getByRole('button', { name: '改用 Muse Image', exact: true }).click();
+  await page.locator('summary').filter({ hasText: '進階設定' }).click();
+  await expect(page.getByLabel('Grok 繪製品質', { exact: true })).toHaveValue('medium');
+  await page.getByLabel('Grok 解析度', { exact: true }).selectOption('2K');
+  await page.locator('#resolution').selectOption('2K');
+  await page.locator('#resolution').selectOption('1K');
+  await expect(page.getByLabel('Grok 解析度', { exact: true })).toHaveValue('2K');
+  await page
+    .getByLabel('編輯照片', { exact: true })
+    .setInputFiles({
+      name: 'photo.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(PNG, 'base64'),
+    });
+  await expect(page.locator('.advanced-model').filter({ hasText: 'Grok Imagine' })).toContainText(
+    '依照片決定尺寸',
+  );
+  await page.getByRole('button', { name: '開始修改照片', exact: true }).click();
+  await expect(page.getByRole('button', { name: /檢視 .* 圖片/ })).toHaveCount(2);
+  expect(api.submitted).toHaveLength(2);
+  for (const request of api.submitted) {
+    expect(request.resolution).toBe('2K');
+    expect(request.inputs?.referenceImages).toHaveLength(1);
+    expect(request).not.toHaveProperty('width');
+    expect(request).not.toHaveProperty('height');
+  }
+  expect(
+    api.submitted.find((task) => task.model === 'xai:grok-imagine@image-2.0')?.settings,
+  ).toEqual({ quality: 'medium' });
+  await page.getByLabel('種子畫廊首頁').click();
+  await page.getByRole('button', { name: /製作圖片/ }).click();
+  await expect(
+    page.getByRole('button', { name: '替換 Grok Imagine Image 2.0', exact: true }),
+  ).toBeVisible();
+  await page.locator('summary').filter({ hasText: '進階設定' }).click();
+  await expect(page.getByLabel('Grok 解析度', { exact: true })).toHaveValue('2K');
+  await expect(page.getByAltText('參考照片 1')).toHaveCount(0);
+});
 async function mockRunware(
   page: Page,
   options: {

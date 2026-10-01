@@ -10,8 +10,12 @@ import bytedanceLogo from './assets/providers/bytedance.png';
 import klingLogo from './assets/providers/kling.png';
 import minimaxLogo from './assets/providers/minimax.svg';
 import wanLogo from './assets/providers/wan.png';
+import grokLogo from './assets/providers/grok.svg';
+import metaLogo from './assets/providers/meta.svg';
 
 const providerLogos = {
+  grok: grokLogo,
+  muse: metaLogo,
   banana: googleLogo,
   gpt: openaiLogo,
   gptFlare: openaiLogo,

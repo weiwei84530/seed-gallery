@@ -52,6 +52,20 @@ const rate = (rates: PricingRate[], unit: string, label?: RegExp) =>
 
 export function calculateModelEstimate(model: ModelId, draft: Draft, rates: PricingRate[]) {
   if (model === 'gpt' || model === 'gptFlare' || model === 'gptSunburst') return null;
+  if (model === 'muse') return rate(rates, 'output') ?? null;
+  if (model === 'grok') {
+    const output = rate(
+      rates,
+      'output',
+      new RegExp(
+        `^quality ${draft.grokQuality ?? 'medium'} · ${draft.grokResolution ?? draft.resolution}$`,
+        'i',
+      ),
+    );
+    const input = rate(rates, 'inputImage');
+    if (output === undefined || (draft.refs.length && input === undefined)) return null;
+    return output + (input ?? 0) * draft.refs.length;
+  }
 
   if (model === 'banana') {
     if (draft.googleSearch) return null;
