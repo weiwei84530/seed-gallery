@@ -113,8 +113,7 @@ export function compatibilityRequest(
     stream_options: { include_usage: true },
     ...(task.model === chatModels.deepseekPro.air
       ? {
-          thinking: { type: task.settings.thinkingLevel === 'low' ? 'disabled' : 'enabled' },
-          reasoning_effort: 'high',
+          reasoning_effort: task.settings.thinkingLevel === 'low' ? 'none' : 'high',
         }
       : task.settings.thinkingLevel
         ? { reasoning_effort: task.settings.thinkingLevel }

@@ -77,9 +77,9 @@ it('maps thinking modes without an application output cap', async () => {
     const pro = await buildChatRequest('deepseekPro', messages, false, 'id', '', mode);
     expect(compatibilityRequest(pro, messages)).toMatchObject({
       model: 'deepseek:v4@pro',
-      thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
-      reasoning_effort: 'high',
+      reasoning_effort: mode === 'fast' ? 'none' : 'high',
     });
+    expect(compatibilityRequest(pro, messages)).not.toHaveProperty('thinking');
     const minimax = await buildChatRequest('minimaxM3', messages, false, 'id', '', mode);
     expect(minimax.settings).not.toHaveProperty('thinkingLevel');
     expect(minimax.settings).not.toHaveProperty('maxTokens');
