@@ -47,7 +47,7 @@ import {
 import { getMedia } from './db';
 import { download } from './media';
 import openaiLogo from './assets/providers/openai.svg';
-import googleLogo from './assets/providers/gemini.svg';
+import googleLogo from './assets/providers/gemini.png';
 import minimaxLogo from './assets/providers/minimax.svg';
 import deepseekLogo from './assets/providers/deepseek.svg';
 import claudeLogo from './assets/providers/claude.svg';
@@ -345,6 +345,8 @@ interface Props {
   showMoney: boolean;
   systemPrompt: string;
   chatMode: ChatMode;
+  chatModeControls: boolean;
+  onChatMode: (mode: ChatMode) => void;
   sessionId: string;
   onNavigate: (id: string) => void;
   onSettings: () => void;
@@ -355,6 +357,8 @@ export function ChatWorkspace({
   showMoney,
   systemPrompt,
   chatMode,
+  chatModeControls,
+  onChatMode,
   sessionId,
   onNavigate,
   onSettings,
@@ -1161,6 +1165,18 @@ export function ChatWorkspace({
                 <Globe size={17} />
                 搜尋網路
               </button>
+              {chatModeControls && (
+                <select
+                  className="chat-mode-select"
+                  aria-label="思考模式"
+                  value={chatMode}
+                  onChange={(event) => onChatMode(event.target.value as ChatMode)}
+                >
+                  <option value="fast">快速</option>
+                  <option value="balanced">平衡</option>
+                  <option value="deep">深入</option>
+                </select>
+              )}
               <span className="chat-composer-spacer" />
               {active ? (
                 <button

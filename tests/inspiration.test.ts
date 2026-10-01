@@ -8,6 +8,7 @@ import {
   parseIdeas,
   preferenceExamples,
   promptRecords,
+  inspirationResponsesRequest,
 } from '../src/inspiration';
 import { newDraft, newVideoDraft, type Job } from '../src/types';
 
@@ -86,6 +87,47 @@ describe('adopted prompt history', () => {
 });
 
 describe('inspiration requests', () => {
+  it('uses Luna Responses with photos, strict schema, no server storage and reported cost', async () => {
+    const draft = { ...newDraft(), prompt: 'Use a playful voice', refs: ['photo'] };
+    const task = buildInspirationRequest('id', draft, [], ['data:image/png;base64,test']);
+    expect(inspirationResponsesRequest(task)).toMatchObject({
+      model: 'openai:gpt@6-luna',
+      store: false,
+      reasoning: { effort: 'low' },
+      text: { format: { type: 'json_schema', strict: true } },
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text' },
+            { type: 'input_image', image_url: 'data:image/png;base64,test' },
+          ],
+        },
+      ],
+    });
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      expect(body).not.toHaveProperty('temperature');
+      return new Response(
+        JSON.stringify({
+          model: body.model,
+          status: 'completed',
+          usage: { cost: 0.0004 },
+          output: [
+            { type: 'reasoning', summary: [] },
+            { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(ideas) }] },
+          ],
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetch);
+    expect(await fetchInspiration('fake', newDraft(), [])).toEqual({
+      ideas: ideas.ideas,
+      cost: 0.0004,
+    });
+    expect(fetch.mock.calls[0][0]).toBe('https://api.runware.ai/v1/responses');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('sends all photos, existing text, video constraints and previous ideas in one completion', () => {
     const draft = {
       ...newVideoDraft(),
@@ -103,7 +145,7 @@ describe('inspiration requests', () => {
     );
     expect(payload.numberResults).toBe(1);
     expect(payload.inputs?.images).toHaveLength(1);
-    expect(payload.model).toBe('google:gemini@3.1-flash-lite');
+    expect(payload.model).toBe('openai:gpt@6-luna');
     expect(JSON.parse(payload.messages[0].content)).toMatchObject({
       currentPrompt: draft.prompt,
       kind: 'video',
@@ -130,16 +172,13 @@ describe('inspiration requests', () => {
     expect(() => parseIdeas(JSON.stringify({ ideas: Array(4).fill(ideas.ideas[0]) }))).toThrow();
     for (const mismatch of [false, true]) {
       const fetch = vi.fn(async (_url: string, init: RequestInit) => {
-        const [task] = JSON.parse(String(init.body));
+        const task = JSON.parse(String(init.body));
         return new Response(
           JSON.stringify({
-            data: [
-              {
-                taskType: 'textInference',
-                taskUUID: mismatch ? 'other' : task.taskUUID,
-                text: JSON.stringify(ideas),
-                finishReason: mismatch ? 'stop' : 'length',
-              },
+            model: mismatch ? 'other' : task.model,
+            status: mismatch ? 'completed' : 'incomplete',
+            output: [
+              { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(ideas) }] },
             ],
           }),
         );

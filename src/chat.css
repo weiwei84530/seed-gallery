@@ -518,6 +518,18 @@
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+  flex-wrap: wrap;
+}
+.chat-mode-select {
+  width: 66px;
+  min-width: 66px;
+  min-height: 36px;
+  padding: 4px 16px 4px 7px;
+  font-size: 14px;
+  border: 0;
+  background-color: transparent;
+  color: var(--muted);
+  border-radius: 8px;
 }
 .chat-composer-tools input[type='file'] {
   display: none;

@@ -3,7 +3,7 @@ import { Minus, Plus } from 'lucide-react';
 import { models } from './models';
 import type { ModelId } from './types';
 import type { ModelEstimate } from './pricing';
-import googleLogo from './assets/providers/gemini.svg';
+import googleLogo from './assets/providers/gemini.png';
 import openaiLogo from './assets/providers/openai.svg';
 import bflLogo from './assets/providers/bfl.svg';
 import bytedanceLogo from './assets/providers/bytedance.svg';

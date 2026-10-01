@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getMedia } from './db';
-import { ApiError, blobDataUri, request } from './runware';
+import { ApiError, blobDataUri } from './runware';
 import { isVideo, type Draft, type Job, type WorkKind } from './types';
 
 export interface PromptRecord {
@@ -114,7 +114,7 @@ export function buildInspirationRequest(
   return {
     taskType: 'textInference',
     taskUUID,
-    model: 'google:gemini@3.1-flash-lite',
+    model: 'openai:gpt@6-luna',
     deliveryMethod: 'sync',
     includeCost: true,
     numberResults: 1,
@@ -138,7 +138,7 @@ export function buildInspirationRequest(
       additionalProperties: false,
     },
     ...(images.length ? { inputs: { images } } : {}),
-    settings: { systemPrompt, thinkingLevel: 'low', maxTokens: 2400, temperature: 1 },
+    settings: { systemPrompt, thinkingLevel: 'low', maxTokens: 2400 },
     messages: [
       {
         role: 'user',
@@ -157,6 +157,33 @@ export function buildInspirationRequest(
               crypto.getRandomValues(new Uint32Array(1))[0] % surpriseDirections.length
             ],
         }),
+      },
+    ],
+  };
+}
+
+export function inspirationResponsesRequest(task: ReturnType<typeof buildInspirationRequest>) {
+  return {
+    model: task.model,
+    store: false,
+    reasoning: { effort: task.settings.thinkingLevel },
+    max_output_tokens: task.settings.maxTokens,
+    instructions: task.settings.systemPrompt,
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'creative_ideas',
+        strict: true,
+        schema: task.jsonSchema,
+      },
+    },
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: task.messages[0].content },
+          ...(task.inputs?.images ?? []).map((image_url) => ({ type: 'input_image', image_url })),
+        ],
       },
     ],
   };
@@ -190,21 +217,34 @@ export async function fetchInspiration(
     }),
   );
   const taskUUID = crypto.randomUUID();
-  const response = await request(
-    key,
-    buildInspirationRequest(taskUUID, draft, records, images, previous),
-  );
-  if (response.errors?.length) throw new ApiError(response.errors[0].code ?? 'unknown');
-  const item = response.data?.find(
-    (item) => item.taskUUID === taskUUID && item.taskType === 'textInference',
-  );
-  if (!item?.text || (item.finishReason && item.finishReason !== 'stop'))
+  const task = buildInspirationRequest(taskUUID, draft, records, images, previous);
+  const response = await fetch('https://api.runware.ai/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify(inspirationResponsesRequest(task)),
+    signal: AbortSignal.timeout(45000),
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+  });
+  const item = await response.json();
+  if (!response.ok || item.error || item.errors?.length)
+    throw new ApiError(item.errors?.[0]?.code ?? item.error?.code ?? String(response.status));
+  if (item.model !== task.model || item.status !== 'completed' || !Array.isArray(item.output))
     throw new Error('這次未取得完整靈感，尚未套用。可以重新取得靈感。');
+  const text = item.output
+    .filter((entry: { type?: string }) => entry.type === 'message')
+    .flatMap((entry: { content?: { type?: string; text?: string }[] }) => entry.content ?? [])
+    .filter((part: { type?: string }) => part.type === 'output_text')
+    .map((part: { text?: string }) => part.text ?? '')
+    .join('');
+  if (!text) throw new Error('這次未取得完整靈感，尚未套用。可以重新取得靈感。');
   return {
-    ideas: parseIdeas(item.text),
+    ideas: parseIdeas(text),
     cost:
-      typeof item.cost === 'number' && Number.isFinite(item.cost) && item.cost >= 0
-        ? item.cost
+      typeof item.usage?.cost === 'number' &&
+      Number.isFinite(item.usage.cost) &&
+      item.usage.cost >= 0
+        ? item.usage.cost
         : undefined,
   };
 }

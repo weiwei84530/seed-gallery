@@ -286,13 +286,11 @@ test('Grok and Muse replace FLUX and retain advanced settings for photo generati
   await page.locator('#resolution').selectOption('2K');
   await page.locator('#resolution').selectOption('1K');
   await expect(page.getByLabel('Grok 解析度', { exact: true })).toHaveValue('2K');
-  await page
-    .getByLabel('編輯照片', { exact: true })
-    .setInputFiles({
-      name: 'photo.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(PNG, 'base64'),
-    });
+  await page.getByLabel('編輯照片', { exact: true }).setInputFiles({
+    name: 'photo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(PNG, 'base64'),
+  });
   await expect(page.locator('.advanced-model').filter({ hasText: 'Grok Imagine' })).toContainText(
     '依照片決定尺寸',
   );
@@ -501,9 +499,21 @@ const inspirationIdeas = Array.from({ length: 4 }, (_, index) => ({
 async function mockInspiration(page: Page, hold = false) {
   const tasks: Task[] = [];
   let release: (() => void) | undefined;
-  await page.route('https://api.runware.ai/v1', async (route) => {
-    const [task] = route.request().postDataJSON() as Task[];
-    if (task.taskType !== 'textInference') return route.fallback();
+  await page.route('https://api.runware.ai/v1/responses', async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.model).toBe('openai:gpt@6-luna');
+    expect(body.text.format.strict).toBe(true);
+    expect(body.store).toBe(false);
+    const task = {
+      ...body,
+      taskType: 'textInference',
+      messages: [{ role: 'user', content: body.input[0].content[0].text }],
+      inputs: {
+        images: body.input[0].content
+          .filter((part: any) => part.type === 'input_image')
+          .map((part: any) => part.image_url),
+      },
+    } as Task;
     tasks.push(task);
     if (hold)
       await new Promise<void>((resolve) => {
@@ -512,15 +522,15 @@ async function mockInspiration(page: Page, hold = false) {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        data: [
+        model: task.model,
+        status: 'completed',
+        output: [
           {
-            taskType: 'textInference',
-            taskUUID: task.taskUUID,
-            text: JSON.stringify({ ideas: inspirationIdeas }),
-            finishReason: 'stop',
-            cost: 0.00123,
+            type: 'message',
+            content: [{ type: 'output_text', text: JSON.stringify({ ideas: inspirationIdeas }) }],
           },
         ],
+        usage: { cost: 0.00123 },
       }),
     });
   });
@@ -650,9 +660,7 @@ test('inspiration sees video photos and settings, returns to blank and preserves
     inspirationIdeas.map((idea) => idea.prompt),
   );
   expect(api.submitted).toHaveLength(0);
-  await page.route('https://api.runware.ai/v1', async (route) => {
-    const [task] = route.request().postDataJSON();
-    if (task.taskType !== 'textInference') return route.fallback();
+  await page.route('https://api.runware.ai/v1/responses', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ errors: [{ code: 'insufficientCredits' }] }),

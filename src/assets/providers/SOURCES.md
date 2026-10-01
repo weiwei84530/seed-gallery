@@ -1,5 +1,7 @@
 # Provider logo sources
 
+- `gemini.png`: Owner-supplied transparent Gemini star artwork (2026-10-02), copied without modification to replace the previous SVG gradient. Used for Gemini chat, Omni video and Nano Banana image models. Trademark belongs to Google.
+
 - `gemini.svg`, `bytedance.svg`, `kling.svg`: Transparent colored symbols from the MIT licensed Lobe Icons static SVG collection, using `gemini-color.svg`, `bytedance-color.svg`, and `kling-color.svg`. See the collection link and included license below. No background tile is added.
 - `bfl.svg`: Transparent historical FLUX symbol from the same collection (`flux.svg`); retained for saved works.
 

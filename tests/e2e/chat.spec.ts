@@ -467,9 +467,21 @@ test('shared thinking preferences reset across disable, re-enable and reload', a
   await page.getByText('聊天偏好', { exact: true }).click();
   const control = page.getByRole('switch', { name: '自訂思考模式' });
   await expect(control).not.toBeChecked();
-  await control.check();
-  await page.getByLabel('思考模式（所有 AI 共用）').selectOption('deep');
+  await control.tap();
+  await expect(control).toBeChecked();
+  await expect(page.getByRole('dialog').getByRole('combobox')).toHaveCount(0);
   await page.getByRole('dialog').getByRole('button', { name: '關閉', exact: true }).click();
+  await page.getByLabel('思考模式', { exact: true }).selectOption('deep');
+  for (const width of [320, 390, 600]) {
+    await page.setViewportSize({ width, height: 844 });
+    const mode = (await page.getByLabel('思考模式', { exact: true }).boundingBox())!;
+    const search = (await page
+      .getByRole('button', { name: '搜尋網路', exact: true })
+      .boundingBox())!;
+    expect(mode.x).toBeGreaterThan(search.x);
+    expect(Math.abs(mode.y - search.y)).toBeLessThan(10);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
   await send(page, 'Deep request');
   await expect.poll(() => requests.length).toBe(2);
   const bodies = requests as unknown as {
@@ -480,12 +492,17 @@ test('shared thinking preferences reset across disable, re-enable and reload', a
   expect(bodies[1].reasoning_effort).toBe('high');
   await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByText('聊天偏好', { exact: true }).click();
-  await control.uncheck();
-  await control.check();
-  await expect(page.getByLabel('思考模式（所有 AI 共用）')).toHaveValue('balanced');
-  await control.uncheck();
+  await control.tap();
+  await expect(control).not.toBeChecked();
+  await control.tap();
+  await expect(control).toBeChecked();
+  await expect(
+    page.evaluate(() => JSON.parse(localStorage.getItem('img-generator.preferences')!).chatMode),
+  ).resolves.toBe('balanced');
+  await control.tap();
   await page.getByRole('dialog').getByRole('button', { name: '關閉', exact: true }).click();
   await page.reload();
+  await expect(page.getByLabel('思考模式', { exact: true })).toHaveCount(0);
   await send(page, 'Balanced request');
   await expect.poll(() => requests.length).toBe(4);
   expect(bodies[2].reasoning?.effort).toBe('medium');

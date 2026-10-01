@@ -1390,7 +1390,12 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
-    const storage = () => {
+    const storage = (event: StorageEvent) => {
+      if (
+        event.key !== null &&
+        !['img-generator.key', 'img-generator.preferences'].includes(event.key)
+      )
+        return;
       setApiKey(readKey());
       setPreferences(readPreferences());
     };
@@ -1708,6 +1713,13 @@ export default function App() {
                 sessionId={chatId}
                 systemPrompt={preferences.chatSystemPrompt ?? ''}
                 chatMode={effectiveChatMode(preferences)}
+                chatModeControls={preferences.chatModeControls ?? false}
+                onChatMode={(mode) =>
+                  setPreferences((previous) => ({
+                    ...previous,
+                    chatMode: previous.chatModeControls ? mode : 'balanced',
+                  }))
+                }
                 onNavigate={(id) => navigate({ screen: 'chat', sessionId: id })}
                 onSettings={() =>
                   navigate({ screen: 'chat', sessionId: chatId, overlay: 'settings' })
@@ -2059,43 +2071,22 @@ export default function App() {
                   />
                 </label>
                 <p className="hint">告訴 AI 你希望它怎麼回答。</p>
-                <label className="toggle-row">
+                <div className="toggle-row">
                   <span>自訂思考模式</span>
-                  <input
-                    type="checkbox"
+                  <button
+                    type="button"
                     role="switch"
-                    checked={preferences.chatModeControls ?? false}
-                    onChange={(event) =>
-                      setPreferences(setChatModeControls(preferences, event.target.checked))
+                    aria-label="自訂思考模式"
+                    aria-checked={preferences.chatModeControls ?? false}
+                    className="chat-mode-switch"
+                    onClick={() =>
+                      setPreferences((previous) =>
+                        setChatModeControls(previous, !previous.chatModeControls),
+                      )
                     }
                   />
-                </label>
-                {preferences.chatModeControls && (
-                  <label className="chat-system-prompt">
-                    思考模式（所有 AI 共用）
-                    <select
-                      value={effectiveChatMode(preferences)}
-                      onChange={(event) =>
-                        setPreferences({
-                          ...preferences,
-                          chatMode: event.target.value as Preferences['chatMode'],
-                        })
-                      }
-                    >
-                      <option value="fast">快速</option>
-                      <option value="balanced">平衡</option>
-                      <option value="deep">深入</option>
-                    </select>
-                  </label>
-                )}
-                <p className="hint">
-                  關閉時一律使用平衡，並清除先前選擇。深入會提高思考強度，不使用最高等級。
-                </p>
-                <p className="hint">
-                  GPT、Gemini、Claude：快速／平衡／深入對應低／中／高，模型依問題調整思考。DeepSeek
-                  Pro：快速關閉思考，平衡與深入皆使用 high。MiniMax
-                  由服務自動決定，目前不支援此切換。
-                </p>
+                </div>
+                <p className="hint">開啟後可在聊天切換思考模式；關閉即重設為平衡。</p>
               </div>
             </details>
             <details className="settings-section">
