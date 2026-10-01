@@ -2335,6 +2335,10 @@ footer a {
   height: 100%;
   object-fit: contain;
 }
+.model-icon:is(.grok, .muse) img {
+  width: 64%;
+  height: 64%;
+}
 .model-icon.flux,
 .model-icon.kling {
   background: #000 !important;
