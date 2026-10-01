@@ -329,6 +329,10 @@
   object-fit: contain;
   border-radius: inherit;
 }
+.chat-model-option .chat-model-mark:is(.gpt, .gemini, .claude) img {
+  width: 88%;
+  height: 88%;
+}
 .chat-intro .chat-privacy {
   font-size: 12px;
   max-width: 560px;
