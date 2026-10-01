@@ -45,11 +45,11 @@ import {
 } from './chat-types';
 import { getMedia } from './db';
 import { download } from './media';
-import openaiLogo from './assets/providers/openai.png';
-import googleLogo from './assets/providers/google.png';
+import openaiLogo from './assets/providers/openai.svg';
+import googleLogo from './assets/providers/google.svg';
 import minimaxLogo from './assets/providers/minimax.svg';
-import deepseekLogo from './assets/providers/deepseek.png';
-import claudeLogo from './assets/providers/claude.png';
+import deepseekLogo from './assets/providers/deepseek.svg';
+import claudeLogo from './assets/providers/claude.svg';
 import './chat.css';
 
 export const CHAT_SELECTION_KEY = 'img-generator.chat-models';

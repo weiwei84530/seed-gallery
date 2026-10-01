@@ -4,3 +4,5 @@
 - `minimax.svg`: MiniMax's official documentation logo from https://platform.minimax.io (https://mintcdn.com/minimax-cac98058/XYzsL2L2ynonu2Q_/logo/light.svg). Only the symbol path and original gradient are retained, with a square viewBox for model cards.
 
 These logos identify their respective providers; they remain the property of their owners.
+
+- `openai.svg`, `google.svg`, `claude.svg`, `deepseek.svg`: Transparent brand symbols from the Lobe Icons static SVG collection (https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons), using `openai.svg`, `google-color.svg`, `claude-color.svg`, and `deepseek-color.svg`. Claude retains the orange symbol without a filled tile. The collection is MIT licensed (https://github.com/lobehub/lobe-icons/blob/master/LICENSE); see `LOBE-ICONS-LICENSE` for the included license.

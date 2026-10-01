@@ -75,7 +75,15 @@ summary:focus-visible {
 input:focus,
 textarea:focus,
 select:focus {
+  outline: none;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
   outline: 2px solid #7e9a84;
+}
+html[data-focus-method='pointer'] :focus {
+  outline: none;
 }
 button {
   transition:
