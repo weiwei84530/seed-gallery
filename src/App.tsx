@@ -283,11 +283,13 @@ function Modal({
 function KeyForm({
   onSuccess,
   replacing = false,
+  initialKey = '',
 }: {
   onSuccess: (key: string) => void;
   replacing?: boolean;
+  initialKey?: string;
 }) {
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialKey);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -360,6 +362,77 @@ function KeyForm({
         {busy ? '正在確認服務…' : replacing ? '驗證並更換 Key' : '連線，開始創作'}
       </button>
     </form>
+  );
+}
+
+function LinkedKeySetup({
+  linkedKey,
+  existingKey,
+  onSuccess,
+  onCancel,
+}: {
+  linkedKey: string;
+  existingKey: string;
+  onSuccess: (key: string) => void;
+  onCancel: () => void;
+}) {
+  const [accepted, setAccepted] = useState(!existingKey || existingKey === linkedKey);
+  const [failed, setFailed] = useState(false);
+  const validation = useRef<Promise<void> | null>(null);
+  const success = useRef(onSuccess);
+  success.current = onSuccess;
+  useEffect(() => {
+    if (!accepted) return;
+    let live = true;
+    // Reuse the request during StrictMode's effect replay.
+    validation.current ??= validateKey(linkedKey);
+    void validation.current.then(
+      () => {
+        if (!live) return;
+        try {
+          saveKey(linkedKey);
+          success.current(linkedKey);
+        } catch {
+          setFailed(true);
+        }
+      },
+      () => {
+        if (live) setFailed(true);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [accepted, linkedKey]);
+  return (
+    <section className="card setup-card">
+      <h2>{accepted ? '設定服務' : '更換服務 Key？'}</h2>
+      {!accepted ? (
+        <>
+          <p>這台裝置已設定另一組 API Key。要改用連結中的 Key 嗎？作品與其他設定會保留。</p>
+          <button className="primary full" onClick={() => setAccepted(true)}>
+            更換 Key
+          </button>
+          <button className="secondary full" onClick={onCancel}>
+            保留原本的 Key
+          </button>
+        </>
+      ) : failed ? (
+        <>
+          <p className="error" role="alert">
+            無法完成設定。請確認網路與 Key 是否有效，並允許瀏覽器保存資料，再試一次。
+          </p>
+          <KeyForm initialKey={linkedKey} replacing={Boolean(existingKey)} onSuccess={onSuccess} />
+          <button className="secondary full" onClick={onCancel}>
+            取消設定
+          </button>
+        </>
+      ) : (
+        <p role="status">
+          <LoaderCircle className="spin" /> 正在確認服務，成功後會自動記住這台裝置…
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -1160,7 +1233,8 @@ function Workspace({
   );
 }
 
-export default function App() {
+export default function App({ linkedKey = '' }: { linkedKey?: string }) {
+  const [pendingLinkedKey, setPendingLinkedKey] = useState(linkedKey);
   const topbarRef = useRef<HTMLElement>(null);
   const brandRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -1244,10 +1318,11 @@ export default function App() {
       screen === 'home' &&
       !loading &&
       !settings &&
+      !pendingLinkedKey &&
       !localStorage.getItem(HOME_TOUR_KEY)
     )
       setShowHomeTour(true);
-  }, [enteredStudio, screen, loading, settings]);
+  }, [enteredStudio, screen, loading, settings, pendingLinkedKey]);
   const jobsRef = useRef(jobs);
   jobsRef.current = jobs;
   const balanceSequence = useRef(0);
@@ -1496,6 +1571,7 @@ export default function App() {
   };
   const current = works.find((w) => w.id === workId);
   const updateKey = (key: string) => {
+    setPendingLinkedKey('');
     const replacing = Boolean(apiKey);
     setApiKey(key);
     setGuestMode(false);
@@ -1666,7 +1742,14 @@ export default function App() {
           無法讀取本機儲存。請確認瀏覽器允許儲存資料，暫時不要清除瀏覽器資料。
         </div>
       )}
-      {rekeying || !enteredStudio ? (
+      {pendingLinkedKey ? (
+        <LinkedKeySetup
+          linkedKey={pendingLinkedKey}
+          existingKey={apiKey}
+          onSuccess={updateKey}
+          onCancel={() => setPendingLinkedKey('')}
+        />
+      ) : rekeying || !enteredStudio ? (
         <Welcome
           key={`${enteredStudio ? 'studio' : 'entry'}:${rekeying ? 'rekey' : 'welcome'}`}
           onSuccess={updateKey}

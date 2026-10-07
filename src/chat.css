@@ -664,6 +664,9 @@
   color: var(--muted);
   margin-top: 12px;
 }
+.chat-fork-dialog > .primary {
+  margin-top: 16px;
+}
 .chat-dialog-close {
   position: absolute;
   right: 12px;

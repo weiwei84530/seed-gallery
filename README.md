@@ -13,6 +13,8 @@
 
 還沒有 API Key？可以先選「稍後設定 API Key」逛逛介面，生成與聊天前再完成設定。Key 驗證成功後會記在目前瀏覽器，下次不必重新輸入。
 
+也支援私下提供自動設定連結：在網站網址後加上 `#key=YOUR_API_KEY`（Key 應經過 URL encoding）。例如 `?costs=hidden#key=YOUR_API_KEY` 可同時讓首次使用的金額顯示預設關閉。網頁會讀取並立即移除網址中的 Key，再自動驗證，成功後保存在目前瀏覽器；若已有不同的 Key，會先詢問是否更換。僅支援 `#` fragment，不使用 query parameter 傳送 Key。原始連結包含完整憑證，取得連結的人可能使用該 Key 的額度；不要公開張貼或轉傳。
+
 ## 可以做什麼
 
 - **製作圖片**：描述想要的畫面，或上傳照片進行修改。
@@ -58,6 +60,6 @@ npm run build
 3. 將程式推送至 `main`，既有 workflow 會執行檢查、測試與建置，再部署網站。
 4. 到 **Actions** 確認部署成功，並從 **Settings → Pages** 開啟網站網址。
 
-部署不需要 API Key 或 Actions secrets；每位使用者在網頁中設定自己的 Key。請勿把 Key 放進 repo、網址或部署檔案。
+部署不需要 API Key 或 Actions secrets；每位使用者在網頁中設定自己的 Key。請勿把 Key 放進 repo、公開網址或部署檔案。
 
 若使用其他靜態網站空間，執行 `npm run build` 後，上傳產生的 `dist/` 資料夾內容即可。

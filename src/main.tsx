@@ -2,6 +2,9 @@ import { Component, StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
+import { consumeKeyLink } from './key-link';
+
+const linkedKey = consumeKeyLink();
 
 // Keep keyboard focus visible without adding rings to pointer interactions.
 document.addEventListener(
@@ -43,7 +46,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <App linkedKey={linkedKey} />
     </ErrorBoundary>
   </StrictMode>,
 );
