@@ -509,7 +509,7 @@ const inspirationIdeas = Array.from({ length: 4 }, (_, index) => ({
   prompt: `保留原本的主角，採用第 ${index + 1} 種構圖，讓柔和的陽光灑在花朵上，背景留下舒適的空間。`,
 }));
 
-async function mockInspiration(page: Page, hold = false) {
+async function mockInspiration(page: Page, hold = false, reportCost = true) {
   const tasks: Task[] = [];
   let release: (() => void) | undefined;
   await page.route('https://api.runware.ai/v1/responses', async (route) => {
@@ -543,7 +543,7 @@ async function mockInspiration(page: Page, hold = false) {
             content: [{ type: 'output_text', text: JSON.stringify({ ideas: inspirationIdeas }) }],
           },
         ],
-        usage: { cost: 0.00123 },
+        usage: reportCost ? { cost: 0.00123 } : { input_tokens: 10, output_tokens: 20 },
       }),
     });
   });
@@ -1870,4 +1870,15 @@ test('replacing video models preserves compatibility checks', async ({ page }, t
   await page.getByRole('button', { name: '新增 MiniMax H3', exact: true }).click();
   await expect(page.getByLabel('MiniMax H3 解析度', { exact: true })).toHaveValue('1440p');
   expect(api.submitted).toHaveLength(0);
+});
+
+test('inspiration shows no cost line when Runware does not report one', async ({ page }) => {
+  await mockRunware(page);
+  await mockInspiration(page, false, false);
+  await setup(page);
+  await page.getByRole('button', { name: /製作圖片/ }).click();
+  await page.getByRole('button', { name: '給我一點靈感', exact: true }).click();
+  await expect(page.locator('.inspiration-idea')).toHaveCount(4);
+  await expect(page.locator('.inspiration-cost')).toHaveCount(0);
+  await expect(page.locator('.inspiration')).not.toContainText('未回報');
 });

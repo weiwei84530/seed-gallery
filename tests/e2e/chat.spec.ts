@@ -19,7 +19,7 @@ async function setup(page: Page, hidden = false) {
     if (task.taskType === 'accountManagement')
       return route.fulfill({ json: { data: [{ balance: 12.34 }] } });
     requests.push(task);
-    const answer = `Answer from ${task.model}\n\n${'A useful response. '.repeat(60)}\nLAST LINE`;
+    const answer = `Answer from ${task.model}\n\n**時間：**12月3日\n\n${'A useful response. '.repeat(60)}\nLAST LINE`;
     if (route.request().url().endsWith('/messages')) {
       const events = [
         { type: 'content_block_delta', delta: { type: 'text_delta', text: answer } },
@@ -656,4 +656,12 @@ test('another tab observes the active lock and recovers after the streaming tab 
   await second.reload();
   await expect(second.locator('.chat-preview').first()).toContainText('連線已中斷');
   expect(replayed).toBe(0);
+});
+
+test('bold text ending in CJK punctuation renders without raw asterisks', async ({ page }) => {
+  await setup(page);
+  await send(page, '會議什麼時候？');
+  const bold = page.locator('.chat-markdown strong', { hasText: '時間：' });
+  await expect(bold.first()).toBeVisible();
+  await expect(page.locator('.chat-markdown').first()).not.toContainText('**');
 });

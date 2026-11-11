@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
+import remarkCjkFriendly from 'remark-cjk-friendly';
 import remarkGfm from 'remark-gfm';
 import {
   chatModels,
@@ -151,7 +152,8 @@ function ChatMarkdown({ text }: { text: string }) {
   return (
     <div className="chat-markdown">
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        // Lets **粗體：** close before CJK text, which plain CommonMark rejects.
+        remarkPlugins={[remarkGfm, remarkCjkFriendly]}
         skipHtml
         components={{
           a: ({ href, children }) => (

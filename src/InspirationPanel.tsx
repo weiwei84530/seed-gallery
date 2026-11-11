@@ -160,12 +160,8 @@ export function InspirationPanel({
           {error}
         </p>
       )}
-      {showMoney && current && (
-        <p className="inspiration-cost">
-          {lastCost === undefined
-            ? '本次靈感費用未回報'
-            : `本次靈感花費 US$ ${lastCost.toFixed(6)}`}
-        </p>
+      {showMoney && current && lastCost !== undefined && (
+        <p className="inspiration-cost">本次靈感花費 US$ {lastCost.toFixed(6)}</p>
       )}
     </div>
   );
