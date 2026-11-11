@@ -1,5 +1,6 @@
 # Local project instructions and private planning context.
 /AGENTS.override.md
+/CLAUDE.local.md
 node_modules/
 dist/
 test-results/
