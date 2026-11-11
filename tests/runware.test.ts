@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchBalance, validateKey } from '../src/runware';
+import { errorCode, fetchBalance, friendlyError, isCreditError, validateKey } from '../src/runware';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -51,4 +51,29 @@ describe('account balance', () => {
       await expect(fetchBalance('test-key')).rejects.toThrow('無法讀取餘額');
     },
   );
+});
+
+describe('error codes', () => {
+  it('recognizes balance reservations from both native and compatible endpoints', () => {
+    const message =
+      'Insufficient available balance. 19.9 credits are currently reserved for requests in progress.';
+    expect(errorCode({ error: { code: 'rate_limit_exceeded', message } }, '429')).toBe(
+      'balanceReserved',
+    );
+    expect(errorCode({ errors: [{ code: 'insufficientCredits', message }] }, '400')).toBe(
+      'balanceReserved',
+    );
+    expect(
+      errorCode(
+        { errors: [{ code: 'concurrentRequestLimitExceeded', message: 'x', reservedCredits: 20 }] },
+        '400',
+      ),
+    ).toBe('balanceReserved');
+    expect(isCreditError('balanceReserved')).toBe(false);
+    expect(friendlyError('balanceReserved')).toContain('進行中的生成');
+    expect(errorCode({ error: { code: 'rate_limit_exceeded', message: 'slow down' } }, '429')).toBe(
+      'rate_limit_exceeded',
+    );
+    expect(errorCode({}, '500')).toBe('500');
+  });
 });

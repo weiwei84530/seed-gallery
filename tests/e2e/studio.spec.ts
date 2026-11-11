@@ -325,6 +325,7 @@ async function mockRunware(
   } = {},
 ) {
   const submitted: Task[] = [];
+  const attempts: Task[] = [];
   const polled: Task[] = [];
   const failed = new Set<string>();
   let interrupt = options.interrupt;
@@ -362,6 +363,22 @@ async function mockRunware(
           : { data: [{ taskType: 'accountManagement', balance: 12.34 }] },
       );
     if (task.taskType === 'imageInference' || task.taskType === 'videoInference') {
+      attempts.push(task);
+      // Like Runware, a taskUUID that already reached the service is rejected without a charge.
+      if (submitted.some((t) => t.taskUUID === task.taskUUID))
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: [],
+            errors: [{ taskUUID: task.taskUUID, code: 'conflictTaskUUID' }],
+          }),
+        });
+      if (interrupt) {
+        // The connection drops before the request reaches Runware.
+        interrupt = false;
+        return route.abort('failed');
+      }
       submitted.push(task);
       if (options.failSeedance && task.model === 'bytedance:seedance@2.0-fast') {
         failed.add(task.taskUUID);
@@ -370,10 +387,6 @@ async function mockRunware(
       if (options.failGpt && task.model?.startsWith('openai')) {
         failed.add(task.taskUUID);
         options.failGpt = false;
-      }
-      if (interrupt) {
-        interrupt = false;
-        return route.abort('failed');
       }
       return reply({ data: [{ taskUUID: task.taskUUID, status: 'processing' }] });
     }
@@ -410,7 +423,7 @@ async function mockRunware(
     }
     throw new Error(`Unexpected task: ${task.taskType}`);
   });
-  return { submitted, polled };
+  return { submitted, attempts, polled };
 }
 async function setup(page: Page, search = '') {
   await page.goto(`/${search}`);
@@ -648,7 +661,8 @@ test('inspiration sees video photos and settings, returns to blank and preserves
     kind: 'video',
     currentPrompt: '',
     durationSeconds: 4,
-    audio: false,
+    // Kling generates sound by default, so ideas may include it.
+    audio: true,
     historyNewestFirst: [],
   });
   await page.getByRole('button', { name: '回到原本的編輯' }).click();
@@ -921,7 +935,11 @@ test('interrupted submission reloads by polling the same task without another ch
   await expect(page.getByRole('button', { name: '查詢原任務' })).toBeVisible();
   await page.reload();
   await expect.poll(() => api.polled.length).toBeGreaterThan(0);
+  // The unacknowledged submission is resent with the same taskUUID, so only one task is charged.
   expect(api.submitted).toHaveLength(1);
+  expect(new Set(api.attempts.map((t) => t.taskUUID))).toEqual(
+    new Set([api.submitted[0].taskUUID]),
+  );
   expect(api.polled[0].taskUUID).toBe(api.submitted[0].taskUUID);
   await page.getByLabel('種子畫廊首頁').click();
   await page.getByRole('button', { name: /我的作品/ }).click();

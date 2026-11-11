@@ -155,7 +155,7 @@ describe('Runware request capabilities', () => {
     expect(gpt.height).toBe(1360);
     expect(gpt.numberResults).toBe(1);
     expect(gpt.deliveryMethod).toBe('async');
-    expect(gpt.outputType).toBe('dataURI');
+    expect(gpt.outputType).toBe('URL');
     expect(() => buildRequest('task', 'gpt', draft, [])).toThrow('參考照片');
   });
   it('keeps every GPT size inside the documented bounds and preserves advanced options', () => {

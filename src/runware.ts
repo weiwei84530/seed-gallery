@@ -23,14 +23,50 @@ export interface ApiResponse {
   errors?: ApiItem[];
 }
 export class ApiError extends Error {
-  constructor(public code: string) {
+  constructor(
+    public code: string,
+    public response?: ApiResponse,
+  ) {
     super(friendlyError(code));
   }
 }
 export const isCredentialError = (code: string) => /key|auth|unauthorized|^401$/i.test(code);
-export const isCreditError = (code = '') => /balance|credit|fund/i.test(code);
+// Runware reserves the worst-case cost of running requests and rejects new ones
+// when the reservation exceeds the available balance, even if the balance is positive.
+export const isReservationError = (code = '') => code === 'balanceReserved';
+export const isCreditError = (code = '') =>
+  !isReservationError(code) && /balance|credit|fund/i.test(code);
+export const isConflictError = (code = '') => /conflictTaskUUID/i.test(code);
+
+interface ErrorEntry {
+  code?: unknown;
+  message?: unknown;
+  reservedCredits?: unknown;
+}
+interface ErrorBody {
+  errors?: ErrorEntry[];
+  error?: ErrorEntry | null;
+}
+// Native tasks use errors[]; OpenAI-compatible endpoints use a single error object.
+export function errorCode(body: unknown, fallback: string) {
+  const value = (body ?? {}) as ErrorBody;
+  const entry = value.errors?.[0] ?? value.error ?? undefined;
+  const message = typeof entry?.message === 'string' ? entry.message : '';
+  if (
+    typeof entry?.reservedCredits === 'number' ||
+    /reserved for requests in progress|insufficient available balance/i.test(message)
+  )
+    return 'balanceReserved';
+  return typeof entry?.code === 'string' && entry.code ? entry.code : fallback;
+}
+// Allow slow mobile uploads: 45 s plus one second per 100 KB of request body.
+export const uploadTimeout = (bytes: number) =>
+  Math.min(300000, 45000 + Math.ceil(bytes / 100_000) * 1000);
+
 export function friendlyError(code = '') {
   if (isCredentialError(code)) return 'API Key 無效或已停用，請到設定更新。';
+  if (isReservationError(code))
+    return 'Runware 帳戶的可用額度暫時被進行中的生成預留，請等目前的作品完成後再試。';
   if (isCreditError(code))
     return 'Runware 判定這次請求額度不足，請至 Runware 檢查帳戶狀態；若餘額足夠仍失敗，請聯絡 Runware。';
   if (/safety|moderation|nsfw|content/i.test(code))
@@ -41,12 +77,13 @@ export function friendlyError(code = '') {
     return '服務商未接受這次設定，請調整模型或參數後再試。';
   return '暫時無法取得結果，請稍後查詢或至 Runware 查看任務。';
 }
-export async function request(key: string, task: object): Promise<ApiResponse> {
+export async function request(key: string, task: object, timeout?: number): Promise<ApiResponse> {
+  const body = JSON.stringify([task]);
   const response = await fetch('https://api.runware.ai/v1', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify([task]),
-    signal: AbortSignal.timeout(45000),
+    body,
+    signal: AbortSignal.timeout(timeout ?? uploadTimeout(body.length)),
     credentials: 'omit',
     referrerPolicy: 'no-referrer',
   });
@@ -58,7 +95,10 @@ export async function request(key: string, task: object): Promise<ApiResponse> {
   }
   // A 5xx response cannot prove that a paid request was rejected before execution.
   if (!response.ok && response.status >= 500) throw new Error('服務暫時無法回應，請稍後查詢。');
-  if (!response.ok) throw new ApiError(result.errors?.[0]?.code ?? String(response.status));
+  if (!response.ok) throw new ApiError(errorCode(result, String(response.status)), result);
+  // Reservation rejections can arrive with HTTP 200 inside errors[].
+  for (const item of result.errors ?? [])
+    if (errorCode({ errors: [item] }, '') === 'balanceReserved') item.code = 'balanceReserved';
   if (!Array.isArray(result.data) && !Array.isArray(result.errors))
     throw new Error('無法辨識服務回應，請稍後查詢。');
   return result;
@@ -124,7 +164,7 @@ export async function resultBlob(item: ApiItem) {
   const response = await fetch(source, {
     credentials: 'omit',
     referrerPolicy: 'no-referrer',
-    signal: AbortSignal.timeout(45000),
+    signal: AbortSignal.timeout(120000),
   });
   if (!response.ok) throw new Error('圖片下載未完成，請重新查詢原任務。');
   const blob = await response.blob();

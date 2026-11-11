@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getMedia } from './db';
-import { ApiError, blobDataUri } from './runware';
+import { videoAudioFor } from './models';
+import { ApiError, blobDataUri, errorCode, uploadTimeout } from './runware';
 import { isVideo, type Draft, type Job, type WorkKind } from './types';
 
 export interface PromptRecord {
@@ -91,6 +92,9 @@ const surpriseDirections = [
   'handcrafted clay and soft tactile materials',
 ];
 
+// Audio is chosen per model; the idea may use sound when any selected model will generate it.
+const wantsAudio = (draft: Draft) => draft.models.some((model) => videoAudioFor(model, draft));
+
 export function inspirationContext(draft: Draft) {
   return JSON.stringify({
     prompt: draft.prompt,
@@ -98,7 +102,7 @@ export function inspirationContext(draft: Draft) {
     kind: draft.kind ?? 'image',
     ratio: draft.ratio,
     duration: isVideo(draft) ? (draft.duration ?? 4) : undefined,
-    audio: isVideo(draft) ? (draft.audio ?? false) : undefined,
+    audio: isVideo(draft) ? wantsAudio(draft) : undefined,
   });
 }
 
@@ -148,7 +152,7 @@ export function buildInspirationRequest(
           referenceImageCount: images.length,
           ratio: draft.ratio,
           ...(isVideo(draft)
-            ? { durationSeconds: draft.duration ?? 4, audio: draft.audio ?? false }
+            ? { durationSeconds: draft.duration ?? 4, audio: wantsAudio(draft) }
             : {}),
           historyNewestFirst: preferenceExamples(records),
           previousSuggestions: previous.map((idea) => idea.prompt),
@@ -218,17 +222,18 @@ export async function fetchInspiration(
   );
   const taskUUID = crypto.randomUUID();
   const task = buildInspirationRequest(taskUUID, draft, records, images, previous);
+  const body = JSON.stringify(inspirationResponsesRequest(task));
   const response = await fetch('https://api.runware.ai/v1/responses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify(inspirationResponsesRequest(task)),
-    signal: AbortSignal.timeout(45000),
+    body,
+    signal: AbortSignal.timeout(uploadTimeout(body.length)),
     credentials: 'omit',
     referrerPolicy: 'no-referrer',
   });
   const item = await response.json();
   if (!response.ok || item.error || item.errors?.length)
-    throw new ApiError(item.errors?.[0]?.code ?? item.error?.code ?? String(response.status));
+    throw new ApiError(errorCode(item, String(response.status)));
   if (item.model !== task.model || item.status !== 'completed' || !Array.isArray(item.output))
     throw new Error('這次未取得完整靈感，尚未套用。可以重新取得靈感。');
   const text = item.output

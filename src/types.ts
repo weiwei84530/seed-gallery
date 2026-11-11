@@ -63,6 +63,9 @@ export interface Job {
   cost?: number;
   message?: string;
   failureReason?: 'credits';
+  // 'pending' means the submission was sent but Runware never acknowledged it.
+  // Jobs saved before this field existed are treated as acknowledged.
+  submission?: 'pending' | 'accepted';
 }
 export interface Media {
   id: string;

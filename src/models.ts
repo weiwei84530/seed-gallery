@@ -407,7 +407,8 @@ export function buildRequest(
       ? { resolution: model === 'muse' ? '2K' : (draft.grokResolution ?? draft.resolution) }
       : dimensions(model, draft)),
     numberResults: 1,
-    outputType: 'dataURI',
+    // URL keeps getResponse small; inline data URIs made completed polls exceed a minute.
+    outputType: 'URL',
     outputFormat: 'PNG',
     deliveryMethod: 'async',
     includeCost: true,

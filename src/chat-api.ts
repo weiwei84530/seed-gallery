@@ -1,5 +1,5 @@
 import { getMedia } from './db';
-import { ApiError, blobDataUri } from './runware';
+import { ApiError, blobDataUri, errorCode } from './runware';
 import type { ChatHistoryMessage, ChatMode, ChatModelId, ChatSource } from './chat-types';
 import { chatModels, validateChatRequest } from './chat-models';
 export { validateChatRequest } from './chat-models';
@@ -306,7 +306,7 @@ export async function streamChat({
       throw new Error('Runware 服務暫時無法回應；請先確認是否已產生費用。');
     let code = String(response.status);
     try {
-      code = (await response.json()).errors?.[0]?.code ?? code;
+      code = errorCode(await response.json(), code);
     } catch {
       /* Keep HTTP status. */
     }

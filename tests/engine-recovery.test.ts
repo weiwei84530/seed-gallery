@@ -128,3 +128,93 @@ it('checks an old processing task once after reopening, then stops the spinner',
   expect((await (await database).get('jobs', job.id))?.status).toBe('unknown');
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+const apiTasks = (fetch: ReturnType<typeof vi.fn>) =>
+  fetch.mock.calls.map(([, init]) => JSON.parse(String((init as RequestInit).body))[0]);
+
+it('resends an unacknowledged submission with the same taskUUID and polls after a conflict', async () => {
+  const job = await pendingVideo();
+  await (await database).put('jobs', {
+    ...job,
+    status: 'unknown',
+    submission: 'pending',
+    createdAt: Date.now() - 16 * 60 * 1000,
+  });
+  vi.stubGlobal('navigator', { onLine: true });
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [], errors: [{ taskUUID: job.id, code: 'conflictTaskUUID' }] }),
+        { status: 400 },
+      ),
+    )
+    .mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ taskUUID: job.id, status: 'processing' }] })),
+    );
+  vi.stubGlobal('fetch', fetch);
+
+  await runJob(job.id, key);
+
+  const tasks = apiTasks(fetch);
+  expect(tasks.map((t) => [t.taskType, t.taskUUID])).toEqual([
+    ['videoInference', job.id],
+    ['getResponse', job.id],
+  ]);
+  const saved = await (await database).get('jobs', job.id);
+  expect(saved?.submission).toBe('accepted');
+  expect(saved?.status).toBe('unknown');
+});
+
+it('does not resend an unacknowledged submission after the conflict window', async () => {
+  const job = await pendingVideo();
+  await (await database).put('jobs', {
+    ...job,
+    status: 'unknown',
+    submission: 'pending',
+    createdAt: Date.now() - 2 * 60 * 60 * 1000,
+  });
+  vi.stubGlobal('navigator', { onLine: true });
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+
+  await runJob(job.id, key);
+
+  expect(fetch).not.toHaveBeenCalled();
+  expect((await (await database).get('jobs', job.id))?.status).toBe('failed');
+});
+
+it('marks a polled HTTP 400 moderation result as failed so it can be retried', async () => {
+  const job = await pendingVideo();
+  await (await database).put('jobs', { ...job, createdAt: Date.now() - 16 * 60 * 1000 });
+  vi.stubGlobal('navigator', { onLine: true });
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        data: [],
+        errors: [{ taskUUID: job.id, code: 'invalidProviderContent', status: 'error' }],
+      }),
+      { status: 400 },
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+
+  await runJob(job.id, key);
+
+  const saved = await (await database).get('jobs', job.id);
+  expect(saved?.status).toBe('failed');
+  expect(saved?.message).toBe(friendlyError('invalidProviderContent'));
+});
+
+it('keeps an interrupted poll queryable without treating it as a failure', async () => {
+  const job = await pendingVideo();
+  await (await database).put('jobs', { ...job, createdAt: Date.now() - 16 * 60 * 1000 });
+  vi.stubGlobal('navigator', { onLine: true });
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError')));
+
+  await runJob(job.id, key);
+
+  const saved = await (await database).get('jobs', job.id);
+  expect(saved?.status).toBe('unknown');
+  expect(saved?.message).toContain('連線暫時中斷');
+});

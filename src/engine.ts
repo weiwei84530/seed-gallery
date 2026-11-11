@@ -4,6 +4,7 @@ import {
   ApiError,
   blobDataUri,
   friendlyError,
+  isConflictError,
   isCreditError,
   keyTag,
   request,
@@ -123,6 +124,46 @@ async function handleResponse(
   return false;
 }
 
+// Runware rejects a reused taskUUID with conflictTaskUUID, so resending an
+// unacknowledged submission cannot start a second paid task within this window.
+const RESUBMIT_WINDOW = 60 * 60 * 1000;
+
+async function referenceUris(job: Job) {
+  return Promise.all(
+    job.draft.refs.map(async (ref) => {
+      const media = await getMedia(ref);
+      if (!media) throw new Error('參考照片已遺失，請重新選擇照片。');
+      return blobDataUri(media.blob);
+    }),
+  );
+}
+
+// Returns the acknowledged job, or undefined when the job reached a final state.
+async function submit(job: Job, key: string, payload: object): Promise<Job | undefined> {
+  let response: ApiResponse;
+  try {
+    response = await request(key, payload);
+  } catch (error) {
+    if (error instanceof ApiError && !isConflictError(error.code)) {
+      await saveJob({
+        ...job,
+        status: 'failed',
+        message: error.message,
+        failureReason: isCreditError(error.code) ? 'credits' : undefined,
+      });
+      return;
+    }
+    if (!(error instanceof ApiError)) throw error;
+    response = { data: [] };
+  }
+  const accepted: Job = { ...job, submission: 'accepted' };
+  // A conflict proves that an earlier attempt with this taskUUID reached Runware.
+  if (response.errors?.some((item) => isConflictError(item.code))) return accepted;
+  await saveJob(accepted);
+  if (await handleResponse(accepted, response, true)) return;
+  return accepted;
+}
+
 export async function runJob(id: string, key: string, allowSubmit = false) {
   if (running.has(id)) return;
   running.add(id);
@@ -138,57 +179,78 @@ export async function runJob(id: string, key: string, allowSubmit = false) {
         return;
       try {
         if (job.status === 'queued' && allowSubmit) {
-          const references = await Promise.all(
-            job.draft.refs.map(async (ref) => {
-              const media = await getMedia(ref);
-              if (!media) throw new Error('參考照片已遺失，請重新選擇照片。');
-              return blobDataUri(media.blob);
-            }),
-          );
-          const payload = buildRequest(job.id, job.model, job.draft, references);
+          const payload = buildRequest(job.id, job.model, job.draft, await referenceUris(job));
           const tx = db.transaction('jobs', 'readwrite');
           const current = await tx.store.get(id);
           if (!current || current.status !== 'queued') {
             await tx.done;
             return;
           }
-          job = { ...current, status: 'sending' };
+          job = { ...current, status: 'sending', submission: 'pending' };
           await tx.store.put(job);
           await tx.done;
           changed();
-          let response: ApiResponse;
-          try {
-            response = await request(key, payload);
-          } catch (error) {
-            if (error instanceof ApiError) {
-              await saveJob({
-                ...job,
-                status: 'failed',
-                message: error.message,
-                failureReason: isCreditError(error.code) ? 'credits' : undefined,
-              });
-              return;
-            }
-            throw error;
-          }
-          if (await handleResponse(job, response, true)) return;
+          const accepted = await submit(job, key, payload);
+          if (!accepted) return;
+          job = accepted;
         } else if (job.status === 'queued') {
           await saveJob({ ...job, status: 'failed', message: '這份作品尚未送出，可以重新生成。' });
           return;
+        } else if (job.submission === 'pending') {
+          // The first attempt timed out or lost its connection before Runware answered.
+          // getResponse reports "processing" even for unknown tasks, so polling alone
+          // could wait forever; resending the same taskUUID settles it safely.
+          if (Date.now() - job.createdAt > RESUBMIT_WINDOW) {
+            await saveJob({
+              ...job,
+              status: 'failed',
+              message: '無法確認這次是否已送出，Runware 也沒有結果。可以重新生成，會另外計費。',
+            });
+            return;
+          }
+          const payload = buildRequest(job.id, job.model, job.draft, await referenceUris(job));
+          job = { ...job, status: 'sending', message: undefined };
+          await saveJob(job);
+          const accepted = await submit(job, key, payload);
+          if (!accepted) return;
+          job = accepted;
         }
         job = { ...job, status: 'processing', message: undefined };
         await saveJob(job);
         const deadline = job.createdAt + (isVideo(job.draft) ? 15 : 5) * 60 * 1000;
         let delay = 1800;
+        let interrupted = false;
         do {
           if (Date.now() < deadline) await wait(delay);
           if (!(await db.get('jobs', id))) return;
-          if (!navigator.onLine) throw new Error('目前已離線，連線後可查詢原任務。');
-          const response = await request(key, { taskType: 'getResponse', taskUUID: id });
-          if (await handleResponse(job, response)) return;
           delay = Math.min(delay * 1.5, 12000);
+          if (!navigator.onLine) {
+            interrupted = true;
+            continue;
+          }
+          let response: ApiResponse;
+          try {
+            response = await request(key, { taskType: 'getResponse', taskUUID: id }, 120000);
+          } catch (error) {
+            // getResponse reports a failed task (e.g. provider moderation) as HTTP 400.
+            if (error instanceof ApiError && error.response?.errors?.length) {
+              if (await handleResponse(job, error.response)) return;
+            }
+            // A slow or dropped poll does not change the task; keep polling until the deadline.
+            if (error instanceof ApiError) throw error;
+            interrupted = true;
+            continue;
+          }
+          interrupted = false;
+          if (await handleResponse(job, response)) return;
         } while (Date.now() < deadline);
-        await saveJob({ ...job, status: 'unknown', message: '等待時間較長，可稍後查詢原任務。' });
+        await saveJob({
+          ...job,
+          status: 'unknown',
+          message: interrupted
+            ? '連線暫時中斷，請查詢原任務。查詢不會重新生成。'
+            : '等待時間較長，可稍後查詢原任務。',
+        });
       } catch (error) {
         const current = await db.get('jobs', id);
         if (!current || current.status === 'succeeded') return;

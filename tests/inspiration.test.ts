@@ -155,6 +155,9 @@ describe('inspiration requests', () => {
       previousSuggestions: ideas.ideas.map((i) => i.prompt),
     });
     expect(() => buildInspirationRequest('task', draft, [], [])).toThrow('參考照片不完整');
+    // Per-model audio defaults to on and must reach the idea generator.
+    const voiced = buildInspirationRequest('task', { ...newVideoDraft(), models: ['kling'] }, [], []);
+    expect(JSON.parse(voiced.messages[0].content).audio).toBe(true);
   });
 
   it('does not submit a paid request when a reference is missing', async () => {
