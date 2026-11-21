@@ -4,6 +4,8 @@
 
 **[開啟種子畫廊](https://weiwei84530.github.io/seed-gallery/)**
 
+這個作品的介紹在 [Weiwei Studio](https://weiweistudio.com/work/seed-gallery/)。
+
 ## 如何開始
 
 1. 準備自己的 [Runware API Key](https://runware.ai/)，在網站的「設定服務」中輸入。
